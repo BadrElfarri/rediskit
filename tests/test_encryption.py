@@ -1,19 +1,11 @@
 import gzip
 import os
-import sys
-import types
 from unittest.mock import patch
 
 import pytest
 from nacl import encoding, secret
 
-# Simulate the config module that Encrypter expects.
-dummy_config = types.ModuleType("config")
-# Fixed, 64-character hex string representing 32 bytes.
-dummy_config.REDISKIT_ENCRYPTION_SECRET = {"__enc_v1": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
-sys.modules["config"] = dummy_config
-
-from rediskit.encrypter import Encrypter  # noqa: E402 # Import after set of env variable
+from rediskit.encrypter import Encrypter
 
 
 @pytest.fixture

@@ -30,30 +30,40 @@ class Encrypter:
 
     def encrypt[T: str | bytes | None](self, data: T, raiseIfEncrypted: bool = True, useZstd: bool = True) -> T:
         if data is None:
-            return None
-
-        isText = isinstance(data, str)
-        dataToEncrypt = data.encode() if isText else data
+            return None  # type: ignore # not able to check this properly
+        elif isinstance(data, str):
+            dataToEncrypt: bytes = data.encode()
+            isText = True
+        elif isinstance(data, bytes):
+            dataToEncrypt = data
+            isText = False
+        else:
+            raise ValueError("data expected to be bytes or str")
 
         if self.isEncrypted(dataToEncrypt, raiseIfEncrypted):
             return data
 
-        compressedData = zstd.compress(dataToEncrypt) if useZstd else gzip.compress(dataToEncrypt)
+        compressedData: bytes = zstd.compress(dataToEncrypt) if useZstd else gzip.compress(dataToEncrypt)
         tagBytes = b"zstd" if useZstd else b"gzip"
 
         cipherText = self._getSecretBox(self.latestVersion).encrypt(compressedData, encoder=encoding.Base64Encoder)
         token = self.latestVersion.encode() + b"|" + tagBytes + b":" + cipherText
 
-        return token.decode() if isText else token
+        return token.decode() if isText else token  # type: ignore # not able to check this properly
 
     def decrypt[T: str | bytes | None](self, data: T) -> T:
         if data is None:
-            return None
-        try:
-            isText = isinstance(data, str)
-            dataToDecrypt = data.encode() if isText else data
+            return None  # type: ignore # not able to check this properly
+        elif isinstance(data, str):
+            dataToDecrypt: bytes = data.encode()
+            isText = True
+        elif isinstance(data, bytes):
+            dataToDecrypt = data
+            isText = False
+        else:
+            raise ValueError("data expected to be bytes or str")
 
-            # TODO: Update to only having the new version later on...This is only done for backwards compatibility
+        try:
             if dataToDecrypt.startswith(self.VERSION_PREFIX.encode()):
                 if b"|" in dataToDecrypt:
                     # Format: __enc_vX|compression:ciphertext
@@ -82,9 +92,9 @@ class Encrypter:
         elif compressionTag == b"gzip":
             deCompressed = gzip.decompress(compressed_data)
         else:
-            raise ValueError(f"Unknown compression '{compressionTag}' in encrypted data.")
+            raise ValueError(f"Unknown compression '{compressionTag.decode()}' in encrypted data.")
 
-        return deCompressed.decode() if isText else deCompressed
+        return deCompressed.decode() if isText else deCompressed  # type: ignore # not able to check this properly
 
     @staticmethod
     def getEncryptionKeyVersionNumber(versionKey: str) -> int:

@@ -23,7 +23,9 @@ dev = [
     "ruff",
     "pytest",
     "mypy",
-    "pytest-asyncio"
+    "pytest-asyncio",
+    "types-redis",
+    "types-zstd"
 ]
 
 [tool.isort]
@@ -43,6 +45,10 @@ ignore = ["E501"]
 "env.py" = ["E402"]
 "migrate.py" = ["E722"]
 "test_multi_document_agent.py" = ["E402", "F811"]
+
+[tool.mypy]
+exclude = "build/"
+ignore_missing_imports = true
 
 [build-system]
 requires = ["setuptools", "wheel"]

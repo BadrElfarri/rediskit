@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Callable, Iterator
 
-import redis
+from redis import Redis, ConnectionPool
 import redis.asyncio as redis_async
 
 from rediskit import config
@@ -10,14 +10,14 @@ from rediskit.encrypter import Encrypter
 from rediskit.utils import CheckMatchingDictData
 
 log = logging.getLogger(__name__)
-redisConnectionPool: redis.ConnectionPool | None = None
+redisConnectionPool: ConnectionPool | None = None
 asyncRedisConnectionPool: redis_async.ConnectionPool | None = None
 
 
 def InitRedisConnectionPool() -> None:
     global redisConnectionPool
     log.info("Initializing redis connection pool")
-    redisConnectionPool = redis.ConnectionPool(
+    redisConnectionPool = ConnectionPool(
         host=config.REDISKIT_REDIS_HOST, port=config.REDISKIT_REDIS_PORT, password=config.REDISKIT_REDIS_PASSWORD, decode_responses=True
     )
 
@@ -30,10 +30,10 @@ def InitAsyncRedisConnectionPool() -> None:
     )
 
 
-def GetRedisConnection() -> redis.Redis:
+def GetRedisConnection() -> Redis:
     if redisConnectionPool is None:
         raise Exception("Redis connection pool is not initialized!")
-    return redis.Redis(connection_pool=redisConnectionPool)
+    return Redis(connection_pool=redisConnectionPool)
 
 
 def GetAsyncRedisConnection() -> redis_async.Redis:
@@ -47,14 +47,14 @@ def GetRedisTopNode(tenant: str, key: str, topNode: str = config.REDISKIT_REDIS_
 
 
 def DumpCacheToRedis(
-    tenant: str, key: str, payload: dict | list[dict], connection: redis.Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE
+    tenant: str, key: str, payload: dict | list[dict], connection: Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE
 ) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = GetRedisTopNode(tenant, key, topNode)
     connection.execute_command("JSON.SET", nodeKey, ".", json.dumps(payload))
 
 
-def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connection: redis.Redis | None = None) -> list[dict]:
+def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connection: Redis | None = None) -> list[dict]:
     count = count if count is not None else config.REDISKIT_REDIS_SCAN_COUNT
     payloads: list[dict] = []
     if config.REDISKIT_REDIS_SKIP_CACHING:
@@ -68,7 +68,7 @@ def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connec
     return payloads
 
 
-def LoadExactCacheFromRedis(tenant: str, match: str, connection: redis.Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> dict | None:
+def LoadExactCacheFromRedis(tenant: str, match: str, connection: Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> dict | None:
     if config.REDISKIT_REDIS_SKIP_CACHING:
         return None
     connection = connection if connection is not None else GetRedisConnection()
@@ -79,13 +79,13 @@ def LoadExactCacheFromRedis(tenant: str, match: str, connection: redis.Redis | N
     return None
 
 
-def DeleteCacheFromRedis(tenant: str, match: str, connection: redis.Redis | None = None) -> None:
+def DeleteCacheFromRedis(tenant: str, match: str, connection: Redis | None = None) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeMatch = GetRedisTopNode(tenant, match)
     connection.delete(nodeMatch)
 
 
-def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: int | None = None, connection: redis.Redis | None = None) -> bool:
+def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: int | None = None, connection: Redis | None = None) -> bool:
     connection = connection if connection is not None else GetRedisConnection()
     cacheMatches = LoadCacheFromRedis(tenant, match, count=count, connection=connection)
     cleanPayloadMatch = json.loads(json.dumps(payloadMatch))
@@ -95,18 +95,18 @@ def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: int | 
     return False
 
 
-def SetRedisCacheExpiry(tenant: str, key: str, expiry: int, connection: redis.Redis | None = None) -> None:
+def SetRedisCacheExpiry(tenant: str, key: str, expiry: int, connection: Redis | None = None) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = GetRedisTopNode(tenant, key)
     connection.expire(nodeKey, expiry)
 
 
-def hashSetTtlForKey(tenant: str, key: str, fields: list[str], ttl: int, connection: redis.Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
+def hashSetTtlForKey(tenant: str, key: str, fields: list[str], ttl: int, connection: Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
     if tenant is None or key is None:
         raise Exception("Tenant or key is missing!")
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenant, key)
-    connection.hexpire(nodeKey, ttl, *fields)
+    connection.hexpire(nodeKey, ttl, *fields)  # type: ignore  # hexpire do exist in new redis version
 
 
 def HSetCacheToRedis(
@@ -114,21 +114,21 @@ def HSetCacheToRedis(
     key: str | None,
     fields: dict[str, Any],
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis | None = None,
+    connection: Redis | None = None,
     ttl: int | None = None,
     enableEncryption: bool = False,
 ) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
     # Create a mapping with JSON-serialized values
+    mapping: dict[str | bytes, bytes | float | int | str]
     if enableEncryption:
         mapping = {field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
     else:
         mapping = {field: json.dumps(value) for field, value in fields.items()}
     connection.hset(nodeKey, mapping=mapping)
     if ttl is not None:
-        connection.hexpire(nodeKey, ttl, *mapping.keys())
-
+        connection.hexpire(nodeKey, ttl, *mapping.keys())  # type: ignore  # hexpire do exist in new redis version
 
 
 def HGetCacheFromRedis(
@@ -136,7 +136,7 @@ def HGetCacheFromRedis(
     key: str | None,
     fields: str | list[str] | None = None,
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis | None = None,
+    connection: Redis | None = None,
     setTtlOnRead: int | None = None,
     isEncrypted: bool = False,
 ) -> dict[str, Any] | None:
@@ -160,7 +160,7 @@ def HGetCacheFromRedis(
         raise ValueError("fields must be either None, a string, or a list of strings")
 
     if setTtlOnRead is not None and data:
-        connection.hexpire(nodeKey, setTtlOnRead, *data.keys())
+        connection.hexpire(nodeKey, setTtlOnRead, *data.keys())  # type: ignore  # hexpire do exist in new redis version
 
     if isEncrypted:
         result = {k: json.loads(Encrypter().decrypt(v)) for k, v in data.items() if v is not None}
@@ -175,7 +175,7 @@ def HScanFields(
     key: str | None,
     match: str,
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis | None = None,
+    connection: Redis | None = None,
 ) -> list[str]:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
@@ -192,7 +192,7 @@ def HDelCacheFromRedis(
     key: str | None,
     fields: dict[str, Any] | list[str],
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis | None = None,
+    connection: Redis | None = None,
 ) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
@@ -210,7 +210,7 @@ def HDelCacheFromRedis(
 
 
 def GetKeys(
-    tenantId: str | None, key: str | None, topNode: Callable = GetRedisTopNode, connection: redis.Redis | None = None, onlyLastKey: bool = True
+    tenantId: str | None, key: str | None, topNode: Callable = GetRedisTopNode, connection: Redis | None = None, onlyLastKey: bool = True
 ) -> list[str]:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
@@ -220,7 +220,7 @@ def GetKeys(
     return keys
 
 
-def SetTtlForKey(tenant: str, key: str, ttl: int, connection: redis.Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
+def SetTtlForKey(tenant: str, key: str, ttl: int, connection: Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
     if tenant is None or key is None:
         raise Exception("Tenant or key is missing!")
     connection = connection if connection is not None else GetRedisConnection()
@@ -228,7 +228,7 @@ def SetTtlForKey(tenant: str, key: str, ttl: int, connection: redis.Redis | None
     connection.expire(nodeKey, ttl)
 
 
-def LoadBlobFromRedis(tenantId: str | None, match: str | None, connection: redis.Redis | None = None, setTtlOnRead: int | None = None) -> bytes | None:
+def LoadBlobFromRedis(tenantId: str | None, match: str | None, connection: Redis | None = None, setTtlOnRead: int | None = None) -> bytes | None:
     log.info(f"Loading cache from redis tenantId:{tenantId}, key: {match}")
     if tenantId is None or match is None:
         raise ValueError("Tenant or key is missing!")
@@ -245,7 +245,7 @@ def LoadBlobFromRedis(tenantId: str | None, match: str | None, connection: redis
 
 
 def DumpBlobToRedis(
-    tenantId: str | None, key: str | None, payload: str, topNode: Callable = GetRedisTopNode, connection: redis.Redis | None = None, ttl: int | None = None
+    tenantId: str | None, key: str | None, payload: str, topNode: Callable = GetRedisTopNode, connection: Redis | None = None, ttl: int | None = None
 ) -> None:
     log.info(f"Dump cache tenantId:{tenantId}, key: {key}")
     if tenantId is None or key is None:
@@ -262,7 +262,7 @@ def ListKeys(
     mathKey: str,
     count: int = 1_000,
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis | None = None,
+    connection: Redis | None = None,
 ) -> Iterator[str]:
     conn = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, mathKey)

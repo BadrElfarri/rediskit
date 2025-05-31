@@ -16,7 +16,7 @@ from rediskit.redisLock import GetAsyncRedisMutexLock, GetRedisMutexLock
 log = logging.getLogger(__name__)
 CacheTypeOptions = Literal["zipPickled", "zipJson"]
 RedisStorageOptions = Literal["string", "hash"]
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def splitHashKey(key: str) -> tuple[str, str]:
@@ -117,7 +117,9 @@ def maybeDataInCache(
             cachedData = cached
     elif storageType == "hash":
         hashKey, field = splitHashKey(computedMemoizeKey)
-        cachedDict = HGetCacheFromRedis(tenantId, hashKey, field, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection)
+        cachedDict = HGetCacheFromRedis(
+            tenantId, hashKey, field, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection
+        )
         if cachedDict and field in cachedDict and cachedDict[field] is not None:
             log.info(f"HASH cache hit tenantId: {tenantId}, key: {hashKey}, field: {field}")
             cachedData = cachedDict[field]

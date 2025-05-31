@@ -81,7 +81,7 @@ def testResetTtlUponReadTrueHash():
     assert res3 == res1
 
 
-#def testResetTtlUponReadFalseHash():
+# def testResetTtlUponReadFalseHash():
 #    @RedisMemoize(memoizeKey="hashResetTtlFalse:field", ttl=3, cacheType="zipJson", resetTtlUponRead=False, storageType="hash")
 #    def func(tenantId: str, x):
 #        time.sleep(1)
