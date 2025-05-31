@@ -16,7 +16,7 @@ A Python toolkit that provides Redis-backed performance and concurrency primitiv
 ```bash
 uv add rediskit
 # or
-pip install rediskit
+poetry add rediskit
 ```
 
 ## Quick Start
@@ -193,6 +193,4 @@ Cache function results in Redis with configurable options.
 - Dependencies: redis, redis-lock, nacl, zstd
 
 ## License
-
-[Add your license information here]
-Powerful Python toolkit for Redis: fast function memoization, distributed locks, and semaphores—ready for sync and async apps.
+Apache-2.0 license
