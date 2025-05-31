@@ -4,7 +4,7 @@ import time
 import polars as pl
 import pytest
 
-from rediskit.memoize import RedisMemoize
+from src.rediskit.memoize import RedisMemoize
 from rediskit.redisClient import GetRedisConnection, GetRedisTopNode, InitAsyncRedisConnectionPool
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
@@ -260,7 +260,7 @@ async def testAsyncBypass():
 
 def testZipPickledVsZipJson():
     @RedisMemoize(memoizeKey="testZipPickled", ttl=10, cacheType="zipPickled")
-    def funcPickled(tenantId: str, x):
+    def funcPickled(tenantId: str, x) -> pl.DataFrame:
         time.sleep(1)
         return pl.DataFrame([{"value": x}])
 
