@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.2"
+version = "0.0.3"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -52,14 +52,6 @@ Documentation = "https://github.com/badrelfarri/rediskit#readme"
 Repository = "https://github.com/badrelfarri/rediskit"
 "Bug Tracker" = "https://github.com/badrelfarri/rediskit/issues"
 Changelog = "https://github.com/badrelfarri/rediskit/blob/main/CHANGELOG.md"
-
-[tool.setuptools]
-package-dir = {"" = "rediskit"}
-include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["rediskit"]
-include = ["*"]
 
 [tool.setuptools.package-data]
 rediskit = ["py.typed"]
