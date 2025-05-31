@@ -180,10 +180,10 @@ def testCallableTtl():
     assert res3.get("delay") == 2
 
 
-def testMissingTenantId():
+def testMissingTenantIdAndKey():
     with pytest.raises(ValueError):
 
-        @RedisMemoize(memoizeKey="missingTenant", ttl=10, cacheType="zipJson")
+        @RedisMemoize(memoizeKey=lambda x: None, ttl=10, cacheType="zipJson")
         def func(x):
             return {"value": x}
 

@@ -38,23 +38,25 @@ def GetAsyncRedisConnection() -> redis_async.Redis:
     return redis_async.Redis(connection_pool=asyncRedisConnectionPool)
 
 
-def GetRedisTopNode(tenant: str, key: str, topNode: str = config.REDIS_TOP_NODE) -> str:
-    return f"{topNode}:{tenant}:{key}"
+def GetRedisTopNode(tenant: str | None, key: str | None, topNode: str = config.REDIS_TOP_NODE) -> str:
+    if tenant is None and key is None:
+        raise ValueError("Tenant and key are missing!")
+    return f"{topNode}:{tenant}:{key}" if tenant is not None else f"{topNode}:{key}"
 
 
-def DumpCacheToRedis(tenant: str, key: str, payload: dict | list[dict], connection: Redis | None = None, topNode: str = config.REDIS_TOP_NODE) -> None:
-    connection = connection if connection is not None else GetRedisConnection()
+def DumpCacheToRedis(tenant: str | None, key: str, payload: dict | list[dict], connection: Redis | None = None, topNode: str = config.REDIS_TOP_NODE) -> None:
     nodeKey = GetRedisTopNode(tenant, key, topNode)
+    connection = connection if connection is not None else GetRedisConnection()
     connection.execute_command("JSON.SET", nodeKey, ".", json.dumps(payload))
 
 
-def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connection: Redis | None = None) -> list[dict]:
+def LoadCacheFromRedis(tenant: str | None, match: str, count: int | None = None, connection: Redis | None = None) -> list[dict]:
     count = count if count is not None else config.REDIS_SCAN_COUNT
+    nodeMatch = GetRedisTopNode(tenant, match)
     payloads: list[dict] = []
     if config.REDIS_SKIP_CACHING:
         return payloads
     connection = connection if connection is not None else GetRedisConnection()
-    nodeMatch = GetRedisTopNode(tenant, match)
     keys = connection.scan_iter(match=nodeMatch, count=count)
     for key in keys:
         payload = json.loads(connection.execute_command("JSON.GET", key))
@@ -62,24 +64,24 @@ def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connec
     return payloads
 
 
-def LoadExactCacheFromRedis(tenant: str, match: str, connection: Redis | None = None, topNode: str = config.REDIS_TOP_NODE) -> dict | None:
+def LoadExactCacheFromRedis(tenant: str | None, match: str, connection: Redis | None = None, topNode: str = config.REDIS_TOP_NODE) -> dict | None:
+    nodeMatch = GetRedisTopNode(tenant, match, topNode)
     if config.REDIS_SKIP_CACHING:
         return None
     connection = connection if connection is not None else GetRedisConnection()
-    nodeMatch = GetRedisTopNode(tenant, match, topNode)
     if connection.exists(nodeMatch):
         payload = json.loads(connection.execute_command("JSON.GET", nodeMatch))
         return payload
     return None
 
 
-def DeleteCacheFromRedis(tenant: str, match: str, connection: Redis | None = None) -> None:
-    connection = connection if connection is not None else GetRedisConnection()
+def DeleteCacheFromRedis(tenant: str | None, match: str, connection: Redis | None = None) -> None:
     nodeMatch = GetRedisTopNode(tenant, match)
+    connection = connection if connection is not None else GetRedisConnection()
     connection.delete(nodeMatch)
 
 
-def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: int | None = None, connection: Redis | None = None) -> bool:
+def CheckCacheMatches(tenant: str | None, match: str, payloadMatch: dict, count: int | None = None, connection: Redis | None = None) -> bool:
     connection = connection if connection is not None else GetRedisConnection()
     cacheMatches = LoadCacheFromRedis(tenant, match, count=count, connection=connection)
     cleanPayloadMatch = json.loads(json.dumps(payloadMatch))
@@ -89,17 +91,15 @@ def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: int | 
     return False
 
 
-def SetRedisCacheExpiry(tenant: str, key: str, expiry: int, connection: Redis | None = None) -> None:
-    connection = connection if connection is not None else GetRedisConnection()
+def SetRedisCacheExpiry(tenant: str | None, key: str, expiry: int, connection: Redis | None = None) -> None:
     nodeKey = GetRedisTopNode(tenant, key)
+    connection = connection if connection is not None else GetRedisConnection()
     connection.expire(nodeKey, expiry)
 
 
-def hashSetTtlForKey(tenant: str, key: str, fields: list[str], ttl: int, connection: Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
-    if tenant is None or key is None:
-        raise Exception("Tenant or key is missing!")
-    connection = connection if connection is not None else GetRedisConnection()
+def hashSetTtlForKey(tenant: str | None, key: str, fields: list[str], ttl: int, connection: Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
     nodeKey = topNode(tenant, key)
+    connection = connection if connection is not None else GetRedisConnection()
     connection.hexpire(nodeKey, ttl, *fields)  # type: ignore  # hexpire do exist in new redis version
 
 
@@ -112,8 +112,8 @@ def HSetCacheToRedis(
     ttl: int | None = None,
     enableEncryption: bool = False,
 ) -> None:
-    connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
+    connection = connection if connection is not None else GetRedisConnection()
     # Create a mapping with JSON-serialized values
     mapping: dict[str | bytes, bytes | float | int | str]
     if enableEncryption:
@@ -135,8 +135,8 @@ def HGetCacheFromRedis(
     isEncrypted: bool = False,
 ) -> dict[str, Any] | None:
     """Retrieve one or more fields from a Redis hash."""
-    connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
+    connection = connection if connection is not None else GetRedisConnection()
 
     if fields is None:
         # Return all fields in the hash
@@ -171,8 +171,8 @@ def HScanFields(
     topNode: Callable = GetRedisTopNode,
     connection: Redis | None = None,
 ) -> list[str]:
-    connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
+    connection = connection if connection is not None else GetRedisConnection()
 
     matched = []
     # Use HSCAN to iterate over the hash fields with a MATCH filter
@@ -188,9 +188,8 @@ def HDelCacheFromRedis(
     topNode: Callable = GetRedisTopNode,
     connection: Redis | None = None,
 ) -> None:
-    connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
-
+    connection = connection if connection is not None else GetRedisConnection()
     # Determine the list of fields to delete
     if isinstance(fields, dict):
         field_names = list(fields.keys())
@@ -198,32 +197,27 @@ def HDelCacheFromRedis(
         field_names = fields
     else:
         raise ValueError("fields must be either a dictionary or a list of strings")
-
     # Delete the specified fields from the hash
     connection.hdel(nodeKey, *field_names)
 
 
 def GetKeys(tenantId: str | None, key: str | None, topNode: Callable = GetRedisTopNode, connection: Redis | None = None, onlyLastKey: bool = True) -> list[str]:
-    connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
+    connection = connection if connection is not None else GetRedisConnection()
     keys = connection.keys(nodeKey)
     if onlyLastKey:
         keys = [k.split(":")[-1] for k in keys]
     return keys
 
 
-def SetTtlForKey(tenant: str, key: str, ttl: int, connection: Redis | None = None, topNode: Callable = GetRedisTopNode) -> None:
-    if tenant is None or key is None:
-        raise Exception("Tenant or key is missing!")
-    connection = connection if connection is not None else GetRedisConnection()
+def SetTtlForKey(tenant: str | None, key: str | None, ttl: int, connection: Redis | None = None, topNode: Callable[..., str] = GetRedisTopNode) -> None:
     nodeKey = topNode(tenant, key)
+    connection = connection if connection is not None else GetRedisConnection()
     connection.expire(nodeKey, ttl)
 
 
 def LoadBlobFromRedis(tenantId: str | None, match: str | None, connection: Redis | None = None, setTtlOnRead: int | None = None) -> bytes | None:
     log.info(f"Loading cache from redis tenantId:{tenantId}, key: {match}")
-    if tenantId is None or match is None:
-        raise ValueError("Tenant or key is missing!")
     connection = connection if connection is not None else GetRedisConnection()
     nodeMatch = GetRedisTopNode(tenantId, match)
     # Retrieve raw bytes directly from Redis.
@@ -240,26 +234,22 @@ def DumpBlobToRedis(
     tenantId: str | None, key: str | None, payload: str, topNode: Callable = GetRedisTopNode, connection: Redis | None = None, ttl: int | None = None
 ) -> None:
     log.info(f"Dump cache tenantId:{tenantId}, key: {key}")
-    if tenantId is None or key is None:
-        raise ValueError("Tenant or key is missing!")
-    connection = connection if connection is not None else GetRedisConnection()
     nodeKey = topNode(tenantId, key)
+    connection = connection if connection is not None else GetRedisConnection()
     connection.set(nodeKey, payload)
     if ttl is not None:
         connection.expire(nodeKey, ttl)
 
 
 def ListKeys(
-    tenantId: str,
+    tenantId: str | None,
     mathKey: str,
     count: int = 1_000,
     topNode: Callable = GetRedisTopNode,
     connection: Redis | None = None,
 ) -> Iterator[str]:
+    pattern = topNode(tenantId, mathKey)
     conn = connection if connection is not None else GetRedisConnection()
-    nodeKey = topNode(tenantId, mathKey)
-    pattern = nodeKey
-
     for i, key in enumerate(conn.scan_iter(match=pattern, count=count)):
         if i >= 10_000:
             raise ValueError("Redis keys exceeded 10_000 matches")

@@ -135,7 +135,7 @@ def maybeDataInCache(
 
 def dumpData(
     data: Any,
-    tenantId: str,
+    tenantId: str | None,
     computedMemoizeKey: str,
     cacheType: CacheTypeOptions,
     computedTtl: int | None,
@@ -198,20 +198,18 @@ def RedisMemoize[T](
         boundArgs = inspect.signature(wrappedFunc).bind(*args, **kwargs)
         boundArgs.apply_defaults()
         tenantId = boundArgs.arguments.get("tenantId") or boundArgs.kwargs.get("tenantId")
-        # if tenantId is None:
-        #    raise ValueError("tenantId not provided in either args or kwargs")
         return tenantId
 
-    def getLockName(tenantId: str, computedMemoizeKey: str) -> str:
-        lockName = f"{config.REDIS_KIT_LOCK_CACHE_MUTEX}:{tenantId}:{computedMemoizeKey}"
-        return lockName
+    def getLockName(tenantId: str | None, computedMemoizeKey: str) -> str:
+        if tenantId is None:
+            return f"{config.REDIS_KIT_LOCK_CACHE_MUTEX}:{computedMemoizeKey}"
+        else:
+            return f"{config.REDIS_KIT_LOCK_CACHE_MUTEX}:{tenantId}:{computedMemoizeKey}"
 
-    def getParams(func, *args, **kwargs) -> tuple[str, int | None, str, str, bool]:
+    def getParams(func, *args, **kwargs) -> tuple[str, int | None, str | None, str, bool]:
         computedMemoizeKey = computeMemoizeKey(*args, **kwargs)
         computedTtl = computeTtl(*args, **kwargs)
         tenantId = computeTenantId(func, *args, **kwargs)
-        if tenantId is None:
-            raise ValueError("tenantId cannot be None")
         lockName = getLockName(tenantId, computedMemoizeKey)
         byPassCachedData = computeByPassCache(*args, **kwargs)
 
