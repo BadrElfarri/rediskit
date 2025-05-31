@@ -1,0 +1,49 @@
+[project]
+name = "rediskit"
+version = "0.0.1"
+description = "Redis tool kit"
+authors = [
+    { name = "Badr Elfarri", email = "badr.elfarri@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12,<4"
+dependencies = [
+    "pydantic",
+    "cryptography",
+    "redis",
+    "polars",
+    "python-redis-lock",
+    "zstd",
+    "pynacl",
+    "dockerbuildsystem>=1.1.64",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "mypy",
+    "pytest-asyncio"
+]
+
+[tool.isort]
+line_length = 999
+multi_line_output = 5
+
+[tool.ruff]
+line-length = 160
+exclude = ["NotificationService/config.py"]
+
+[tool.ruff.lint]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"config.py" = ["E501"]
+"app.py" = ["E402"]
+"env.py" = ["E402"]
+"migrate.py" = ["E722"]
+"test_multi_document_agent.py" = ["E402", "F811"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
