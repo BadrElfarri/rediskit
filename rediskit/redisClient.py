@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Callable, Iterator, Optional, Union
+from typing import Any, Callable, Iterator
 
 import redis
 import redis.asyncio as redis_async
@@ -10,8 +10,8 @@ from rediskit.encrypter import Encrypter
 from rediskit.utils import CheckMatchingDictData
 
 log = logging.getLogger(__name__)
-redisConnectionPool: Optional[redis.ConnectionPool] = None
-asyncRedisConnectionPool: Optional[redis_async.ConnectionPool] = None
+redisConnectionPool: redis.ConnectionPool | None = None
+asyncRedisConnectionPool: redis_async.ConnectionPool | None = None
 
 
 def InitRedisConnectionPool() -> None:
@@ -47,14 +47,14 @@ def GetRedisTopNode(tenant: str, key: str, topNode: str = config.REDISKIT_REDIS_
 
 
 def DumpCacheToRedis(
-    tenant: str, key: str, payload: Union[dict, list[dict]], connection: Optional[redis.Redis] = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE
+    tenant: str, key: str, payload: dict | list[dict], connection: redis.Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE
 ) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = GetRedisTopNode(tenant, key, topNode)
     connection.execute_command("JSON.SET", nodeKey, ".", json.dumps(payload))
 
 
-def LoadCacheFromRedis(tenant: str, match: str, count: Optional[int] = None, connection: Optional[redis.Redis] = None) -> list[dict]:
+def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connection: redis.Redis | None = None) -> list[dict]:
     count = count if count is not None else config.REDISKIT_REDIS_SCAN_COUNT
     payloads: list[dict] = []
     if config.REDISKIT_REDIS_SKIP_CACHING:
@@ -68,7 +68,7 @@ def LoadCacheFromRedis(tenant: str, match: str, count: Optional[int] = None, con
     return payloads
 
 
-def LoadExactCacheFromRedis(tenant: str, match: str, connection: Optional[redis.Redis] = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> Optional[dict]:
+def LoadExactCacheFromRedis(tenant: str, match: str, connection: redis.Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> dict | None:
     if config.REDISKIT_REDIS_SKIP_CACHING:
         return None
     connection = connection if connection is not None else GetRedisConnection()
@@ -79,13 +79,13 @@ def LoadExactCacheFromRedis(tenant: str, match: str, connection: Optional[redis.
     return None
 
 
-def DeleteCacheFromRedis(tenant: str, match: str, connection: Optional[redis.Redis] = None) -> None:
+def DeleteCacheFromRedis(tenant: str, match: str, connection: redis.Redis | None = None) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeMatch = GetRedisTopNode(tenant, match)
     connection.delete(nodeMatch)
 
 
-def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: Optional[int] = None, connection: Optional[redis.Redis] = None) -> bool:
+def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: int | None = None, connection: redis.Redis | None = None) -> bool:
     connection = connection if connection is not None else GetRedisConnection()
     cacheMatches = LoadCacheFromRedis(tenant, match, count=count, connection=connection)
     cleanPayloadMatch = json.loads(json.dumps(payloadMatch))
@@ -95,7 +95,7 @@ def CheckCacheMatches(tenant: str, match: str, payloadMatch: dict, count: Option
     return False
 
 
-def SetRedisCacheExpiry(tenant: str, key: str, expiry: int, connection: Optional[redis.Redis] = None) -> None:
+def SetRedisCacheExpiry(tenant: str, key: str, expiry: int, connection: redis.Redis | None = None) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = GetRedisTopNode(tenant, key)
     connection.expire(nodeKey, expiry)
@@ -114,7 +114,7 @@ def HSetCacheToRedis(
     key: str | None,
     fields: dict[str, Any],
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis = None,
+    connection: redis.Redis | None = None,
     ttl: int | None = None,
     enableEncryption: bool = False,
 ) -> None:
@@ -136,7 +136,7 @@ def HGetCacheFromRedis(
     key: str | None,
     fields: str | list[str] | None = None,
     topNode: Callable = GetRedisTopNode,
-    connection: redis.Redis = None,
+    connection: redis.Redis | None = None,
     setTtlOnRead: int | None = None,
     isEncrypted: bool = False,
 ) -> dict[str, Any] | None:

@@ -3,7 +3,7 @@ import datetime
 import enum
 import json
 import uuid
-from typing import List, Tuple, Union
+from typing import Any
 
 
 def base64JsonToDict(keysBase64: str | None) -> dict[str, str]:
@@ -18,7 +18,7 @@ def base64JsonToDict(keysBase64: str | None) -> dict[str, str]:
         raise ValueError("Invalid key format") from e
 
 
-def JsonEncoder(value: any, raiseIfNoMatch: bool = False):
+def JsonEncoder(value: Any, raiseIfNoMatch: bool = False):
     if isinstance(value, enum.Enum):
         return value.value
     elif isinstance(value, uuid.UUID):
@@ -30,7 +30,7 @@ def JsonEncoder(value: any, raiseIfNoMatch: bool = False):
     return value
 
 
-def SerializeValues(value: any) -> any:
+def SerializeValues(value: Any) -> Any:
     if isinstance(value, dict):
         serializedDict = {}
         for dictKey, dictValue in value.items():
@@ -43,8 +43,8 @@ def SerializeValues(value: any) -> any:
     return JsonEncoder(value)
 
 
-def DictToList(items: Union[dict, None]) -> list:
-    listItems = []
+def DictToList(items: dict | None) -> list[Any]:
+    listItems: list[Any] = []
     if items is None:
         return listItems
     for key in items:
@@ -52,7 +52,7 @@ def DictToList(items: Union[dict, None]) -> list:
     return listItems
 
 
-def DeserializeDictModelProperty(items: Union[dict, None], modelType: any) -> None:
+def DeserializeDictModelProperty(items: dict | None, modelType: Any) -> None:
     if isinstance(items, dict):
         for key in items:
             value = items[key]
@@ -87,7 +87,7 @@ def RemoveNonesFromDictData(originalDict: dict) -> dict:
     return cleanDict
 
 
-def RemoveMatchingDictData(originalDict: dict, matchingDict: dict) -> Tuple[dict, dict]:
+def RemoveMatchingDictData(originalDict: dict, matchingDict: dict) -> tuple[dict, dict]:
     changedData = {}
     cleanDict = dict(matchingDict)
     keysToPop = []
@@ -155,9 +155,9 @@ def CheckMatchingListData(originalList: list, matchingList: list) -> bool:
     return matching
 
 
-def RemoveKeys(data: dict, keyMap: dict, ignoreKeys: List[str] = None) -> None:
+def RemoveKeys(data: dict, keyMap: dict, ignoreKeys: list[str] | None = None) -> None:
     if ignoreKeys is None:
-        ignoreKeys: List[str] = ["id"]
+        ignoreKeys = ["id"]
     for key in keyMap:
         if key in data and key not in ignoreKeys:
             if isinstance(keyMap[key], dict):

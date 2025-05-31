@@ -4,7 +4,7 @@ import inspect
 import json
 import logging
 import pickle
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, TypeVar
 
 import zstd
 
@@ -16,6 +16,7 @@ from rediskit.redisLock import GetAsyncRedisMutexLock, GetRedisMutexLock
 log = logging.getLogger(__name__)
 CacheTypeOptions = Literal["zipPickled", "zipJson"]
 RedisStorageOptions = Literal["string", "hash"]
+T = TypeVar('T')
 
 
 def splitHashKey(key: str) -> tuple[str, str]:
@@ -72,8 +73,8 @@ def serializeData(
     return payload
 
 
-def computeValue[T](param: T | Callable[..., T], *args, **kwargs) -> T:
-    if isinstance(param, Callable):
+def computeValue(param: Any, *args, **kwargs) -> Any:
+    if callable(param):
         sig = inspect.signature(param)
         accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
 
@@ -100,6 +101,7 @@ def maybeDataInCache(
     byPassCachedData: bool,
     enableEncryption: bool,
     storageType: RedisStorageOptions = "string",
+    connection: Any = None,
 ) -> Any:
     if byPassCachedData:
         log.info(f"Cache bypassed for tenantId: {tenantId}, key {computedMemoizeKey}")
@@ -108,14 +110,14 @@ def maybeDataInCache(
     cachedData = None
     if storageType == "string":
         cached = redisClient.LoadBlobFromRedis(
-            tenantId, match=computedMemoizeKey, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None
+            tenantId, match=computedMemoizeKey, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection
         )
         if cached:
             log.info(f"Cache hit tenantId: {tenantId}, key: {computedMemoizeKey}")
             cachedData = cached
     elif storageType == "hash":
         hashKey, field = splitHashKey(computedMemoizeKey)
-        cachedDict = HGetCacheFromRedis(tenantId, hashKey, field, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None)
+        cachedDict = HGetCacheFromRedis(tenantId, hashKey, field, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection)
         if cachedDict and field in cachedDict and cachedDict[field] is not None:
             log.info(f"HASH cache hit tenantId: {tenantId}, key: {hashKey}, field: {field}")
             cachedData = cachedDict[field]
@@ -137,18 +139,19 @@ def dumpData(
     computedTtl: int | None,
     enableEncryption: bool,
     storageType: RedisStorageOptions = "string",
+    connection: Any = None,
 ) -> None:
     payload = serializeData(data, cacheType, enableEncryption)
     if storageType == "string":
-        redisClient.DumpBlobToRedis(tenantId, computedMemoizeKey, payload=payload, ttl=computedTtl)
+        redisClient.DumpBlobToRedis(tenantId, computedMemoizeKey, payload=payload, ttl=computedTtl, connection=connection)
     elif storageType == "hash":
         hashKey, field = splitHashKey(computedMemoizeKey)
-        HSetCacheToRedis(tenantId, hashKey, fields={field: payload}, ttl=computedTtl)
+        HSetCacheToRedis(tenantId, hashKey, fields={field: payload}, ttl=computedTtl, connection=connection)
     else:
         raise ValueError(f"Unknown storageType: {storageType}")
 
 
-def RedisMemoize[T](
+def RedisMemoize(
     memoizeKey: Callable[..., str] | str,
     ttl: Callable[..., int] | int | None = None,
     bypassCache: Callable[..., bool] | bool = False,
@@ -156,7 +159,8 @@ def RedisMemoize[T](
     resetTtlUponRead: bool = True,
     enableEncryption: bool = False,
     storageType: RedisStorageOptions = "string",
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    connection: Any = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Caches the result of any function in Redis using either pickle or JSON.
 
     The decorated function must have 'tenantId' as an arg or kwarg.
@@ -168,22 +172,23 @@ def RedisMemoize[T](
     - bypassCache: Don't get data from cache, run wrapped func and update cache. run new values.
     - cacheType: "zipPickled" Uses pickle for arbitrary Python objects, "zipJson" Uses JSON for data that is JSON serializable.
     - resetTtlUponRead: Set the ttl to the initial value upon reading the value from redis cache
+    - connection: Custom Redis connection to use instead of the default connection pool
     """
 
     def computeMemoizeKey(*args, **kwargs) -> str:
-        if not (isinstance(memoizeKey, str) or isinstance(memoizeKey, Callable)):
+        if not (isinstance(memoizeKey, str) or callable(memoizeKey)):
             raise ValueError(f"Expected memoizeKey to be Callable or a str. got {type(memoizeKey)}")
         return computeValue(memoizeKey, *args, **kwargs)
 
     def computeTtl(*args, **kwargs) -> int | None:
         if ttl is None:
             return None
-        if not (isinstance(ttl, int) or isinstance(ttl, Callable)):
+        if not (isinstance(ttl, int) or callable(ttl)):
             raise ValueError(f"Expected ttl to be Callable or an int. got {type(ttl)}")
         return computeValue(ttl, *args, **kwargs)
 
     def computeByPassCache(*args, **kwargs) -> bool:
-        if not (isinstance(bypassCache, bool) or isinstance(bypassCache, Callable)):
+        if not (isinstance(bypassCache, bool) or callable(bypassCache)):
             raise ValueError(f"Expected bypassCache to be Callable or an int. got {type(bypassCache)}")
         return computeValue(bypassCache, *args, **kwargs)
 
@@ -203,42 +208,44 @@ def RedisMemoize[T](
         computedMemoizeKey = computeMemoizeKey(*args, **kwargs)
         computedTtl = computeTtl(*args, **kwargs)
         tenantId = computeTenantId(func, *args, **kwargs)
+        if tenantId is None:
+            raise ValueError("tenantId cannot be None")
         lockName = getLockName(tenantId, computedMemoizeKey)
         byPassCachedData = computeByPassCache(*args, **kwargs)
 
         return computedMemoizeKey, computedTtl, tenantId, lockName, byPassCachedData
 
-    def decorator[T](func: Callable[..., T]) -> Callable[..., T]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         isAsyncFunc = inspect.iscoroutinefunction(func)
         if isAsyncFunc:
 
             @functools.wraps(func)
-            async def wrapper[T](*args, **kwargs) -> T:
+            async def wrapper(*args, **kwargs) -> Any:
                 computedMemoizeKey, computedTtl, tenantId, lockName, byPassCachedData = getParams(func, *args, **kwargs)
                 async with await GetAsyncRedisMutexLock(lockName, expire=60):
                     inCache = maybeDataInCache(
-                        tenantId, computedMemoizeKey, computedTtl, cacheType, resetTtlUponRead, byPassCachedData, enableEncryption, storageType
+                        tenantId, computedMemoizeKey, computedTtl, cacheType, resetTtlUponRead, byPassCachedData, enableEncryption, storageType, connection
                     )
                     if inCache is not None:
                         return inCache
                     result = await func(*args, **kwargs)
                     if result is not None:
-                        dumpData(result, tenantId, computedMemoizeKey, cacheType, computedTtl, enableEncryption, storageType)
+                        dumpData(result, tenantId, computedMemoizeKey, cacheType, computedTtl, enableEncryption, storageType, connection)
                     return result
         else:
 
             @functools.wraps(func)
-            def wrapper[T](*args, **kwargs) -> T:
+            def wrapper(*args, **kwargs) -> Any:
                 computedMemoizeKey, computedTtl, tenantId, lockName, byPassCachedData = getParams(func, *args, **kwargs)
                 with GetRedisMutexLock(lockName, auto_renewal=True, expire=60):
                     inCache = maybeDataInCache(
-                        tenantId, computedMemoizeKey, computedTtl, cacheType, resetTtlUponRead, byPassCachedData, enableEncryption, storageType
+                        tenantId, computedMemoizeKey, computedTtl, cacheType, resetTtlUponRead, byPassCachedData, enableEncryption, storageType, connection
                     )
                     if inCache is not None:
                         return inCache
                     result = func(*args, **kwargs)
                     if result is not None:
-                        dumpData(result, tenantId, computedMemoizeKey, cacheType, computedTtl, enableEncryption, storageType)
+                        dumpData(result, tenantId, computedMemoizeKey, cacheType, computedTtl, enableEncryption, storageType, connection)
                     return result
 
         return wrapper
