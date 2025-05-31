@@ -13,7 +13,7 @@ dummy_config = types.ModuleType("config")
 dummy_config.REDISKIT_ENCRYPTION_SECRET = {"__enc_v1": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 sys.modules["config"] = dummy_config
 
-from rediskit.encrypter import Encrypter
+from rediskit.encrypter import Encrypter  # noqa: E402 # Import after set of env variable
 
 
 @pytest.fixture

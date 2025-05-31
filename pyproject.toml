@@ -18,7 +18,7 @@ dependencies = [
     "dockerbuildsystem>=1.1.64",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "ruff",
     "pytest",
