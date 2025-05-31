@@ -7,7 +7,7 @@ from redis import ConnectionPool, Redis
 
 from rediskit import config
 from rediskit.encrypter import Encrypter
-from src.rediskit.utils import CheckMatchingDictData
+from rediskit.utils import CheckMatchingDictData
 
 log = logging.getLogger(__name__)
 redisConnectionPool: ConnectionPool | None = None
@@ -17,17 +17,13 @@ asyncRedisConnectionPool: redis_async.ConnectionPool | None = None
 def InitRedisConnectionPool() -> None:
     global redisConnectionPool
     log.info("Initializing redis connection pool")
-    redisConnectionPool = ConnectionPool(
-        host=config.REDISKIT_REDIS_HOST, port=config.REDISKIT_REDIS_PORT, password=config.REDISKIT_REDIS_PASSWORD, decode_responses=True
-    )
+    redisConnectionPool = ConnectionPool(host=config.REDIS_HOST, port=config.REDIS_PORT, password=config.REDIS_PASSWORD, decode_responses=True)
 
 
 def InitAsyncRedisConnectionPool() -> None:
     global asyncRedisConnectionPool
     log.info("Initializing async redis connection pool")
-    asyncRedisConnectionPool = redis_async.ConnectionPool(
-        host=config.REDISKIT_REDIS_HOST, port=config.REDISKIT_REDIS_PORT, password=config.REDISKIT_REDIS_PASSWORD, decode_responses=True
-    )
+    asyncRedisConnectionPool = redis_async.ConnectionPool(host=config.REDIS_HOST, port=config.REDIS_PORT, password=config.REDIS_PASSWORD, decode_responses=True)
 
 
 def GetRedisConnection() -> Redis:
@@ -42,20 +38,20 @@ def GetAsyncRedisConnection() -> redis_async.Redis:
     return redis_async.Redis(connection_pool=asyncRedisConnectionPool)
 
 
-def GetRedisTopNode(tenant: str, key: str, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> str:
+def GetRedisTopNode(tenant: str, key: str, topNode: str = config.REDIS_TOP_NODE) -> str:
     return f"{topNode}:{tenant}:{key}"
 
 
-def DumpCacheToRedis(tenant: str, key: str, payload: dict | list[dict], connection: Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> None:
+def DumpCacheToRedis(tenant: str, key: str, payload: dict | list[dict], connection: Redis | None = None, topNode: str = config.REDIS_TOP_NODE) -> None:
     connection = connection if connection is not None else GetRedisConnection()
     nodeKey = GetRedisTopNode(tenant, key, topNode)
     connection.execute_command("JSON.SET", nodeKey, ".", json.dumps(payload))
 
 
 def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connection: Redis | None = None) -> list[dict]:
-    count = count if count is not None else config.REDISKIT_REDIS_SCAN_COUNT
+    count = count if count is not None else config.REDIS_SCAN_COUNT
     payloads: list[dict] = []
-    if config.REDISKIT_REDIS_SKIP_CACHING:
+    if config.REDIS_SKIP_CACHING:
         return payloads
     connection = connection if connection is not None else GetRedisConnection()
     nodeMatch = GetRedisTopNode(tenant, match)
@@ -66,8 +62,8 @@ def LoadCacheFromRedis(tenant: str, match: str, count: int | None = None, connec
     return payloads
 
 
-def LoadExactCacheFromRedis(tenant: str, match: str, connection: Redis | None = None, topNode: str = config.REDISKIT_REDIS_TOP_NODE) -> dict | None:
-    if config.REDISKIT_REDIS_SKIP_CACHING:
+def LoadExactCacheFromRedis(tenant: str, match: str, connection: Redis | None = None, topNode: str = config.REDIS_TOP_NODE) -> dict | None:
+    if config.REDIS_SKIP_CACHING:
         return None
     connection = connection if connection is not None else GetRedisConnection()
     nodeMatch = GetRedisTopNode(tenant, match, topNode)

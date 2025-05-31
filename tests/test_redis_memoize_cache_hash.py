@@ -4,7 +4,7 @@ import time
 import polars as pl
 import pytest
 
-from src.rediskit.memoize import RedisMemoize
+from rediskit.memoize import RedisMemoize
 from rediskit.redisClient import GetRedisConnection, GetRedisTopNode, InitAsyncRedisConnectionPool
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"

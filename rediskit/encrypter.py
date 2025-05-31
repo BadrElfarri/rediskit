@@ -14,7 +14,7 @@ class Encrypter:
     VERSION_PREFIX = "__enc_v"
 
     # EncryptedCompressedBase64Box
-    def __init__(self, keyHexDict: dict[str, str] = config.REDISKIT_ENCRYPTION_SECRET) -> None:
+    def __init__(self, keyHexDict: dict[str, str] = config.REDIS_KIT_ENCRYPTION_SECRET) -> None:
         """
         keysBase64 shall have the following format {"__enc_v1": "32-byte key"...,"__enc_vn": ...}
         """

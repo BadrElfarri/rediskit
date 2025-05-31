@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from nacl import encoding, secret
 
-from rediskit.encrypter import Encrypter
+from rediskit import Encrypter
 
 
 @pytest.fixture

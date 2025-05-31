@@ -4,7 +4,7 @@ import inspect
 import json
 import logging
 import pickle
-from typing import Any, Awaitable, Callable, Literal, overload
+from typing import Any, Callable, Literal
 
 import zstd
 from redis import Redis
@@ -203,7 +203,7 @@ def RedisMemoize[T](
         return tenantId
 
     def getLockName(tenantId: str, computedMemoizeKey: str) -> str:
-        lockName = f"{config.REDISKIT_LOCK_CACHE_REDIS_MUTEX}:{tenantId}:{computedMemoizeKey}"
+        lockName = f"{config.REDIS_KIT_LOCK_CACHE_MUTEX}:{tenantId}:{computedMemoizeKey}"
         return lockName
 
     def getParams(func, *args, **kwargs) -> tuple[str, int | None, str, str, bool]:
