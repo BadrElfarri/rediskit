@@ -2,7 +2,7 @@ import os
 
 from DockerBuildSystem import TerminalTools
 
-from rediskit.utils import base64JsonToDict
+from src.rediskit.utils import base64JsonToDict
 
 TerminalTools.LoadDefaultEnvironmentVariablesFile("private.env")
 TerminalTools.LoadDefaultEnvironmentVariablesFile(".env")

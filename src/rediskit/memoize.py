@@ -4,9 +4,10 @@ import inspect
 import json
 import logging
 import pickle
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Awaitable, Callable, Literal, overload
 
 import zstd
+from redis import Redis
 
 from rediskit import config, redisClient
 from rediskit.encrypter import Encrypter
@@ -16,7 +17,6 @@ from rediskit.redisLock import GetAsyncRedisMutexLock, GetRedisMutexLock
 log = logging.getLogger(__name__)
 CacheTypeOptions = Literal["zipPickled", "zipJson"]
 RedisStorageOptions = Literal["string", "hash"]
-T = TypeVar("T")
 
 
 def splitHashKey(key: str) -> tuple[str, str]:
@@ -73,7 +73,7 @@ def serializeData(
     return payload
 
 
-def computeValue(param: Any, *args, **kwargs) -> Any:
+def computeValue[T](param: T | Callable[..., T], *args, **kwargs) -> T:
     if callable(param):
         sig = inspect.signature(param)
         accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
@@ -101,7 +101,7 @@ def maybeDataInCache(
     byPassCachedData: bool,
     enableEncryption: bool,
     storageType: RedisStorageOptions = "string",
-    connection: Any = None,
+    connection: Redis | None = None,
 ) -> Any:
     if byPassCachedData:
         log.info(f"Cache bypassed for tenantId: {tenantId}, key {computedMemoizeKey}")
@@ -141,7 +141,7 @@ def dumpData(
     computedTtl: int | None,
     enableEncryption: bool,
     storageType: RedisStorageOptions = "string",
-    connection: Any = None,
+    connection: Redis | None = None,
 ) -> None:
     payload = serializeData(data, cacheType, enableEncryption)
     if storageType == "string":
@@ -153,7 +153,7 @@ def dumpData(
         raise ValueError(f"Unknown storageType: {storageType}")
 
 
-def RedisMemoize(
+def RedisMemoize[T](
     memoizeKey: Callable[..., str] | str,
     ttl: Callable[..., int] | int | None = None,
     bypassCache: Callable[..., bool] | bool = False,
@@ -161,8 +161,8 @@ def RedisMemoize(
     resetTtlUponRead: bool = True,
     enableEncryption: bool = False,
     storageType: RedisStorageOptions = "string",
-    connection: Any = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    connection: Redis | None = None,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Caches the result of any function in Redis using either pickle or JSON.
 
     The decorated function must have 'tenantId' as an arg or kwarg.
@@ -217,12 +217,12 @@ def RedisMemoize(
 
         return computedMemoizeKey, computedTtl, tenantId, lockName, byPassCachedData
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         isAsyncFunc = inspect.iscoroutinefunction(func)
         if isAsyncFunc:
 
             @functools.wraps(func)
-            async def wrapper(*args, **kwargs) -> Any:
+            async def async_wrapper(*args, **kwargs) -> T:
                 computedMemoizeKey, computedTtl, tenantId, lockName, byPassCachedData = getParams(func, *args, **kwargs)
                 async with await GetAsyncRedisMutexLock(lockName, expire=60):
                     inCache = maybeDataInCache(
@@ -234,10 +234,13 @@ def RedisMemoize(
                     if result is not None:
                         dumpData(result, tenantId, computedMemoizeKey, cacheType, computedTtl, enableEncryption, storageType, connection)
                     return result
+
+            return async_wrapper
+
         else:
 
             @functools.wraps(func)
-            def wrapper(*args, **kwargs) -> Any:
+            def wrapper(*args, **kwargs) -> T:
                 computedMemoizeKey, computedTtl, tenantId, lockName, byPassCachedData = getParams(func, *args, **kwargs)
                 with GetRedisMutexLock(lockName, auto_renewal=True, expire=60):
                     inCache = maybeDataInCache(
@@ -250,6 +253,6 @@ def RedisMemoize(
                         dumpData(result, tenantId, computedMemoizeKey, cacheType, computedTtl, enableEncryption, storageType, connection)
                     return result
 
-        return wrapper
+            return wrapper
 
     return decorator

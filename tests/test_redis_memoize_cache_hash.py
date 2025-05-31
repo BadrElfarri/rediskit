@@ -4,7 +4,7 @@ import time
 import polars as pl
 import pytest
 
-from rediskit.memoize import RedisMemoize
+from src.rediskit.memoize import RedisMemoize
 from rediskit.redisClient import GetRedisConnection, GetRedisTopNode, InitAsyncRedisConnectionPool
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
@@ -81,25 +81,25 @@ def testResetTtlUponReadTrueHash():
     assert res3 == res1
 
 
-# def testResetTtlUponReadFalseHash():
-#    @RedisMemoize(memoizeKey="hashResetTtlFalse:field", ttl=3, cacheType="zipJson", resetTtlUponRead=False, storageType="hash")
-#    def func(tenantId: str, x):
-#        time.sleep(1)
-#        return {"result": x}
-#
-#    res1 = func(TEST_TENANT_ID, 909)
-#    assert res1["result"] == 909
-#
-#    time.sleep(2)
-#    res2 = func(TEST_TENANT_ID, 909)
-#    assert res2 == res1
-#
-#    time.sleep(2)
-#    start = time.time()
-#    res3 = func(TEST_TENANT_ID, 909)
-#    duration3 = time.time() - start
-#    assert duration3 >= 1.0
-#    assert res3["result"] == 909
+def testResetTtlUponReadFalseHash():
+    @RedisMemoize(memoizeKey="hashResetTtlFalse:field", ttl=3, cacheType="zipJson", resetTtlUponRead=False, storageType="hash")
+    def func(tenantId: str, x):
+        time.sleep(1)
+        return {"result": x}
+
+    res1 = func(TEST_TENANT_ID, 909)
+    assert res1["result"] == 909
+
+    time.sleep(2)
+    res2 = func(TEST_TENANT_ID, 909)
+    assert res2 == res1
+
+    time.sleep(2)
+    start = time.time()
+    res3 = func(TEST_TENANT_ID, 909)
+    duration3 = time.time() - start
+    assert duration3 >= 1.0
+    assert res3["result"] == 909
 
 
 def testHashEncryption():
