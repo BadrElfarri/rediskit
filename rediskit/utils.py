@@ -38,7 +38,7 @@ def SerializeValues(value: Any) -> Any:
             serializedDict[serializedKey] = SerializeValues(dictValue)
         return serializedDict
     elif isinstance(value, list):
-        serializedList = list(map(lambda listValue: SerializeValues(listValue), value))
+        serializedList = [SerializeValues(v) for v in value]
         return serializedList
     return JsonEncoder(value)
 

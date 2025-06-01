@@ -411,11 +411,11 @@ def test_encrypt_never_produces_zstd_with_v1(enc):
     Business rule: *old* keys are never written with zstd. The library fulfils
     this because it always uses the latest key when zstd is requested.
     """
-    secret_text = "should not get zstd + v1"
-    token = enc.encrypt(secret_text, useZstd=True)
+    someText = "should not get zstd + v1"
+    token = enc.encrypt(someText, useZstd=True)
     assert token.startswith("__enc_v2")  # NOT v1
     assert "|zstd:" in token  # tag visible
-    assert enc.decrypt(token) == secret_text
+    assert enc.decrypt(token) == someText
 
 
 # --------------------------------------------------------------------------- #

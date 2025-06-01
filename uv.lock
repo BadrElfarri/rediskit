@@ -1,5 +1,5 @@
 version = 1
-requires-python = ">=3.12, <4"
+requires-python = ">=3.12"
 
 [[package]]
 name = "annotated-types"
@@ -356,7 +356,7 @@ wheels = [
 
 [[package]]
 name = "rediskit"
-version = "0.0.1"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -369,7 +369,7 @@ dependencies = [
     { name = "zstd" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
@@ -377,28 +377,28 @@ dev = [
     { name = "ruff" },
     { name = "types-redis" },
     { name = "types-zstd" },
+]
+docker = [
+    { name = "dockerbuildsystem" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "cryptography" },
     { name = "dockerbuildsystem", specifier = ">=1.1.64" },
+    { name = "dockerbuildsystem", marker = "extra == 'docker'", specifier = ">=1.1.64" },
+    { name = "mypy", marker = "extra == 'dev'" },
     { name = "polars" },
     { name = "pydantic" },
     { name = "pynacl" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "python-redis-lock" },
     { name = "redis" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "types-redis", marker = "extra == 'dev'" },
+    { name = "types-zstd", marker = "extra == 'dev'" },
     { name = "zstd" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-    { name = "types-redis" },
-    { name = "types-zstd" },
 ]
 
 [[package]]
