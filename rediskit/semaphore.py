@@ -145,34 +145,3 @@ class Semaphore:
         if not self.is_acquired_by_process():
             return
         self.release_lock()
-
-    @staticmethod
-    def get_redis_semaphore(
-        key: str,
-        process_unique_id: str | None = None,
-        count: int = 2,
-        acquire_timeout: int = 60,
-        lock_ttl: int = 60,
-    ) -> "Semaphore":
-        return Semaphore(
-            key=f"{config.REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE}:{key}",
-            limit=count,
-            acquire_timeout=acquire_timeout,
-            lock_ttl=lock_ttl,
-            process_unique_id=process_unique_id,
-        )
-
-
-if __name__ == "__main__":
-    redisClient.InitRedisConnectionPool()
-    key = "SomeTTL_TEST"
-    sem = Semaphore(
-        key=f"{config.REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE}:{key}",
-        limit=1,
-        acquire_timeout=60,
-        lock_ttl=None,
-        process_unique_id=None,
-    )
-    sem.acquire_blocking()
-    with sem:
-        print(sem.get_active_count())

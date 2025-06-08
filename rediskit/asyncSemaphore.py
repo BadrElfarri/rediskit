@@ -154,16 +154,3 @@ class AsyncSemaphore:
         if not await self.is_acquired_by_process():
             return
         await self.release_lock()
-
-
-if __name__ == "__main__":
-    redisClient.InitAsyncRedisConnectionPool()
-    key = "SomeTTL_TEST"
-    sem = AsyncSemaphore(
-        key=f"{key}",
-        limit=1,
-        acquire_timeout=60,
-        lock_ttl=None,
-        process_unique_id=None,
-    )
-    sem.acquire_blocking()
