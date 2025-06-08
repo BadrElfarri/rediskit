@@ -1,11 +1,12 @@
-import time
+import logging
 import random
+import threading
+import time
+import uuid
 
 from redis import RedisError
-from rediskit import config, redisClient
 
-import logging
-import uuid
+from rediskit import config, redisClient
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -14,20 +15,48 @@ log = logging.getLogger(__name__)
 class Semaphore:
     def __init__(
         self,
-        namespace: str,
+        key: str,
         limit: int,
-        acquire_time_out: int,
-        lock_time_to_live: int | None,
+        acquire_timeout: int,
+        lock_ttl: int | None,
         redis_conn: str | None = None,
         process_unique_id: str | None = None,
+        ttl_auto_renewal: bool = True,
     ):
+        if limit <= 0:
+            raise ValueError("Limit must be positive")
+        if acquire_timeout <= 0:
+            raise ValueError("Acquire timeout must be positive")
+        if lock_ttl is not None and lock_ttl <= 0:
+            raise ValueError("Lock TTL must be positive or None")
+
         self.redisConn = redis_conn if redis_conn else redisClient.GetRedisConnection()
-        self.namespace = namespace
-        self.limit = limit  # Limit on the number of processes that can acquire the lock concurrently
-        self.acquireTimeOut = acquire_time_out
-        self.ttl = lock_time_to_live
+        self.namespace = f"{config.REDIS_TOP_NODE}:{key}"
+        self.limit = limit
+        self.acquireTimeOut = acquire_timeout
+        self.ttl = lock_ttl or 0
         self.process_unique_id = str(uuid.uuid4()) if not process_unique_id else process_unique_id
-        self.hashKey = f"{namespace}:holders"
+        self.hashKey = f"{self.namespace}:holders"
+        self.ttl_auto_renewal = ttl_auto_renewal if self.ttl else False
+        self._renew_ttl_thread = None
+        self._stop_ttl_renew = threading.Event()
+
+    def _stop_ttl_renewal(self):
+        if not self.ttl:
+            raise ValueError("TTL must be set to stop TTL renewal")
+
+        self._stop_ttl_renew.set()
+        if self._renew_ttl_thread and self._renew_ttl_thread.is_alive():
+            self._renew_ttl_thread.join(timeout=2)
+        self._renew_ttl_thread = None
+
+    def _start_ttl_renewal(self):
+        if not self.ttl:
+            raise ValueError("TTL must be set to start TTL renewal")
+
+        self._stop_ttl_renew.clear()
+        self._renew_ttl_thread = threading.Thread(target=self._renew_loop, daemon=True)
+        self._renew_ttl_thread.start()
 
     def get_active_count(self):
         try:
@@ -60,7 +89,6 @@ class Semaphore:
         if self.lock_limit_reached():
             return False
         try:
-            # Ensure argument order matches your script
             if self.ttl:
                 result = self.redisConn.eval(lua_script, 1, self.hashKey, self.process_unique_id, self.limit, acquired_time_stamp, self.ttl)
             else:
@@ -68,11 +96,25 @@ class Semaphore:
 
             if result == 1:
                 log.info(f"Acquired semaphore lock: {self.hashKey}, total locks holding: {self.get_active_count()} out of {self.limit}")
+                if self.ttl and self.ttl_auto_renewal:
+                    self._start_ttl_renewal()
             return result == 1
         except RedisError as e:
             raise RuntimeError(f"Failed to acquire semaphore: {e}")
 
+    def _renew_loop(self):
+        renew_interval = max(1, self.ttl // 2)
+        while not self._stop_ttl_renew.is_set():
+            time.sleep(renew_interval)
+            try:
+                self.redisConn.hexpire(self.hashKey, self.ttl, self.process_unique_id)  # type: ignore  # hexpire do exist in new redis version
+                log.debug(f"Renewed TTL for {self.hashKey} - {self.process_unique_id}")
+            except Exception as e:
+                log.warning(f"Semaphore TTL renewal failed: {e}")
+
     def release_lock(self):
+        if self.ttl and self.ttl_auto_renewal:
+            self._stop_ttl_renewal()
         try:
             self.redisConn.hdel(self.hashKey, self.process_unique_id)
             log.info(f"Released semaphore lock: {self.hashKey}, total locks holding {self.get_active_count()} out of {self.limit}")
@@ -92,6 +134,9 @@ class Semaphore:
             backoff = min(backoff * 2, 2)
         raise RuntimeError(f"Timeout: Unable to acquire the semaphore lock {self.hashKey}, total locks holding {self.get_active_count()} out of {self.limit}")
 
+    def get_active_process_unique_ids(self) -> set[str]:
+        return set(self.redisConn.hkeys(self.hashKey))  # type: ignore
+
     def __enter__(self):
         self.acquire_blocking()
         return self
@@ -101,32 +146,31 @@ class Semaphore:
             return
         self.release_lock()
 
-
-# The rest of your helper functions can stay as they were, for example:
-def get_redis_semaphore(
-    key: str,
-    process_unique_id: str | None = None,
-    count: int = 2,
-    acquire_time_out: int = 60,
-    lock_time_to_live: int = 60,
-) -> Semaphore:
-    return Semaphore(
-        namespace=f"{config.REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE}:{key}",
-        limit=count,
-        acquire_time_out=acquire_time_out,
-        lock_time_to_live=lock_time_to_live,
-        process_unique_id=process_unique_id,
-    )
+    @staticmethod
+    def get_redis_semaphore(
+        key: str,
+        process_unique_id: str | None = None,
+        count: int = 2,
+        acquire_timeout: int = 60,
+        lock_ttl: int = 60,
+    ) -> "Semaphore":
+        return Semaphore(
+            key=f"{config.REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE}:{key}",
+            limit=count,
+            acquire_timeout=acquire_timeout,
+            lock_ttl=lock_ttl,
+            process_unique_id=process_unique_id,
+        )
 
 
 if __name__ == "__main__":
     redisClient.InitRedisConnectionPool()
     key = "SomeTTL_TEST"
     sem = Semaphore(
-        namespace=f"{config.REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE}:{key}",
+        key=f"{config.REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE}:{key}",
         limit=1,
-        acquire_time_out=60,
-        lock_time_to_live=None,
+        acquire_timeout=60,
+        lock_ttl=None,
         process_unique_id=None,
     )
     sem.acquire_blocking()
