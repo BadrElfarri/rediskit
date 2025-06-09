@@ -1,5 +1,6 @@
 import json
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, Callable, Iterator
 
 import redis.asyncio as redis_async
@@ -24,6 +25,23 @@ def InitAsyncRedisConnectionPool() -> None:
     global asyncRedisConnectionPool
     log.info("Initializing async redis connection pool")
     asyncRedisConnectionPool = redis_async.ConnectionPool(host=config.REDIS_HOST, port=config.REDIS_PORT, password=config.REDIS_PASSWORD, decode_responses=True)
+
+
+@asynccontextmanager
+async def redis_single_connection_context():
+    pool = redis_async.ConnectionPool(
+        host=config.REDIS_HOST,
+        port=config.REDIS_PORT,
+        password=config.REDIS_PASSWORD,
+        decode_responses=True,
+        max_connections=1,
+    )
+    client = redis_async.Redis(connection_pool=pool)
+    try:
+        yield client
+    finally:
+        await client.close()
+        await pool.disconnect()
 
 
 def GetRedisConnection() -> Redis:
