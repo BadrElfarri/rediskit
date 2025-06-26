@@ -1,14 +1,14 @@
 import redis
 
 from rediskit.memoize import RedisMemoize
-from rediskit.redisClient import InitRedisConnectionPool
+from rediskit.redis_client import init_redis_connection_pool
 
 
 def test_basic_usage():
     """Test basic decorator usage with default connection."""
     print("Testing basic usage...")
 
-    InitRedisConnectionPool()
+    init_redis_connection_pool()
 
     @RedisMemoize(memoizeKey="test_basic", ttl=300)
     def basic_function(tenantId: str, value: int) -> dict:

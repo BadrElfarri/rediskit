@@ -9,9 +9,9 @@ from typing import Any, Callable, Literal
 import zstd
 from redis import Redis
 
-from rediskit import config, redisClient
+from rediskit import config, redis_client
 from rediskit.encrypter import Encrypter
-from rediskit.redisClient import HGetCacheFromRedis, HSetCacheToRedis
+from rediskit.redis_client import h_get_cache_from_redis, h_set_cache_to_redis
 from rediskit.redisLock import GetAsyncRedisMutexLock, GetRedisMutexLock
 
 log = logging.getLogger(__name__)
@@ -109,16 +109,16 @@ def maybeDataInCache(
 
     cachedData = None
     if storageType == "string":
-        cached = redisClient.LoadBlobFromRedis(
-            tenantId, match=computedMemoizeKey, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection
+        cached = redis_client.load_blob_from_redis(
+            tenantId, match=computedMemoizeKey, set_ttl_on_read=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection
         )
         if cached:
             log.info(f"Cache hit tenantId: {tenantId}, key: {computedMemoizeKey}")
             cachedData = cached
     elif storageType == "hash":
         hashKey, field = splitHashKey(computedMemoizeKey)
-        cachedDict = HGetCacheFromRedis(
-            tenantId, hashKey, field, setTtlOnRead=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection
+        cachedDict = h_get_cache_from_redis(
+            tenantId, hashKey, field, set_ttl_on_read=computedTtl if resetTtlUponRead and computedTtl is not None else None, connection=connection
         )
         if cachedDict and field in cachedDict and cachedDict[field] is not None:
             log.info(f"HASH cache hit tenantId: {tenantId}, key: {hashKey}, field: {field}")
@@ -145,10 +145,10 @@ def dumpData(
 ) -> None:
     payload = serializeData(data, cacheType, enableEncryption)
     if storageType == "string":
-        redisClient.DumpBlobToRedis(tenantId, computedMemoizeKey, payload=payload, ttl=computedTtl, connection=connection)
+        redis_client.dump_blob_to_redis(tenantId, computedMemoizeKey, payload=payload, ttl=computedTtl, connection=connection)
     elif storageType == "hash":
         hashKey, field = splitHashKey(computedMemoizeKey)
-        HSetCacheToRedis(tenantId, hashKey, fields={field: payload}, ttl=computedTtl, connection=connection)
+        h_set_cache_to_redis(tenantId, hashKey, fields={field: payload}, ttl=computedTtl, connection=connection)
     else:
         raise ValueError(f"Unknown storageType: {storageType}")
 

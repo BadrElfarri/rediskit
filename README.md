@@ -2,6 +2,10 @@
 
 A Python toolkit that provides Redis-backed performance and concurrency primitives for applications. It enables developers to add caching, distributed coordination, and data protection to their Python applications with minimal effort.
 
+## Still work in progress
+Many features are still under development, there will be many breaking changes. Please use at your own risk.
+
+
 ## Features
 
 - **Function Result Caching**: Use the `@RedisMemoize` decorator to cache expensive function calls with automatic serialization, compression, and encryption
@@ -24,10 +28,11 @@ poetry add rediskit
 ### Basic Setup
 
 ```python
-from rediskit import RedisMemoize, InitRedisConnectionPool
+from rediskit import RedisMemoize, init_redis_connection_pool
 
 # Initialize Redis connection pool (call once at app startup)
-InitRedisConnectionPool()
+init_redis_connection_pool()
+
 
 # Cache expensive function results
 @RedisMemoize(memoizeKey="expensive_calc", ttl=300)
@@ -36,6 +41,7 @@ def expensive_calculation(tenantId: str, value: int) -> dict:
     import time
     time.sleep(2)
     return {"result": value * 42}
+
 
 # Usage
 result = expensive_calculation("tenant1", 10)  # Takes 2 seconds
@@ -91,15 +97,17 @@ def get_dynamic_data(tenantId: str, priority: str, force_refresh: bool = False) 
 
 ```python
 import asyncio
-from rediskit import RedisMemoize, InitAsyncRedisConnectionPool
+from rediskit import RedisMemoize, init_async_redis_connection_pool
 
 # Initialize async Redis connection pool
-await InitAsyncRedisConnectionPool()
+await init_async_redis_connection_pool()
+
 
 @RedisMemoize(memoizeKey="async_calc", ttl=300)
 async def async_expensive_function(tenantId: str, value: int) -> dict:
     await asyncio.sleep(1)  # Simulate async work
     return {"async_result": value * 100}
+
 
 # Usage
 result = await async_expensive_function("tenant1", 5)
@@ -172,10 +180,10 @@ Cache function results in Redis with configurable options.
 
 ### Connection Management
 
-- `InitRedisConnectionPool()`: Initialize sync Redis connection pool
-- `InitAsyncRedisConnectionPool()`: Initialize async Redis connection pool
-- `GetRedisConnection()`: Get sync Redis connection
-- `GetAsyncRedisConnection()`: Get async Redis connection
+- `init_redis_connection_pool()`: Initialize sync Redis connection pool
+- `init_async_redis_connection_pool()`: Initialize async Redis connection pool
+- `get_redis_connection()`: Get sync Redis connection
+- `get_async_redis_connection()`: Get async Redis connection
 
 ### Distributed Locking
 

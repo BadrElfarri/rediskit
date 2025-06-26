@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from rediskit.redisClient import redis_single_connection_context
+from rediskit.redis_client import redis_single_connection_context
 
 TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"
 

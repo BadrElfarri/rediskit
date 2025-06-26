@@ -1,3 +1,3 @@
-from rediskit import redisClient
+from rediskit import redis_client
 
-redisClient.InitRedisConnectionPool()
+redis_client.init_redis_connection_pool()

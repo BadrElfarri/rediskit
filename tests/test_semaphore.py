@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from rediskit.redisClient import GetRedisConnection, GetRedisTopNode
+from rediskit.redis_client import get_redis_connection, get_redis_top_node
 from rediskit.semaphore import Semaphore
 
 TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"
@@ -12,12 +12,12 @@ TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"
 
 @pytest.fixture
 def redis_conn():
-    return GetRedisConnection()
+    return get_redis_connection()
 
 
 @pytest.fixture(autouse=True)
 def CleanupRedis(redis_conn):
-    prefix = GetRedisTopNode(TEST_TENANT_ID, "")
+    prefix = get_redis_top_node(TEST_TENANT_ID, "")
     for key in redis_conn.scan_iter(match=f"{prefix}*"):
         redis_conn.delete(key)
     yield

@@ -5,19 +5,19 @@ import polars as pl
 import pytest
 
 from rediskit.memoize import RedisMemoize
-from rediskit.redisClient import GetRedisConnection, GetRedisTopNode, InitAsyncRedisConnectionPool
+from rediskit.redis_client import get_redis_connection, get_redis_top_node, init_async_redis_connection_pool
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
 
 
 @pytest.fixture
 def Connection():
-    return GetRedisConnection()
+    return get_redis_connection()
 
 
 @pytest.fixture(autouse=True)
 def CleanupRedis(Connection):
-    NodeKey = GetRedisTopNode(TEST_TENANT_ID, "*")
+    NodeKey = get_redis_top_node(TEST_TENANT_ID, "*")
     Connection.delete(NodeKey)
     yield
     Connection.delete(NodeKey)
@@ -116,7 +116,7 @@ def testHashEncryption():
 
 @pytest.mark.asyncio
 async def testAsyncHashCaching():
-    InitAsyncRedisConnectionPool()
+    init_async_redis_connection_pool()
 
     @RedisMemoize(memoizeKey=lambda tenantId, x: f"testAsyncHashKey:{tenantId}:{x}", ttl=10, cacheType="zipJson", storageType="hash")
     async def slowFunc(tenantId: str, x):
@@ -139,7 +139,7 @@ async def testAsyncHashCaching():
 
 @pytest.mark.asyncio
 async def testAsyncHashEncryption():
-    InitAsyncRedisConnectionPool()
+    init_async_redis_connection_pool()
 
     @RedisMemoize(memoizeKey="encryptedAsyncHash:testField", ttl=10, cacheType="zipJson", enableEncryption=True, storageType="hash")
     async def func(tenantId: str, x):
@@ -217,7 +217,7 @@ def testHashPickledEncryption():
 
 @pytest.mark.asyncio
 async def testAsyncHashPickledCaching():
-    InitAsyncRedisConnectionPool()
+    init_async_redis_connection_pool()
 
     @RedisMemoize(memoizeKey="asyncPickledHash:field", ttl=10, cacheType="zipPickled", storageType="hash")
     async def func(tenantId: str, x):
@@ -232,7 +232,7 @@ async def testAsyncHashPickledCaching():
 
 @pytest.mark.asyncio
 async def testAsyncHashPickledEncryption():
-    InitAsyncRedisConnectionPool()
+    init_async_redis_connection_pool()
 
     @RedisMemoize(memoizeKey="asyncEncryptedPickledHash:field", ttl=10, cacheType="zipPickled", enableEncryption=True, storageType="hash")
     async def func(tenantId: str, x):

@@ -6,7 +6,7 @@ import uuid
 
 from redis import RedisError
 
-from rediskit import config, redisClient
+from rediskit import config, redis_client
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class Semaphore:
         if lock_ttl is not None and lock_ttl <= 0:
             raise ValueError("Lock TTL must be positive or None")
 
-        self.redisConn = redis_conn if redis_conn else redisClient.GetRedisConnection()
+        self.redisConn = redis_conn if redis_conn else redis_client.get_redis_connection()
         self.namespace = f"{config.REDIS_TOP_NODE}:{key}"
         self.limit = limit
         self.acquireTimeOut = acquire_timeout

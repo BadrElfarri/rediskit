@@ -112,12 +112,12 @@ def RemoveMatchingDictData(originalDict: dict, matchingDict: dict) -> tuple[dict
     return cleanDict, changedData
 
 
-def CheckMatchingDictData(originalDict: dict, matchingDict: dict) -> bool:
+def check_matching_dict_data(originalDict: dict, matchingDict: dict) -> bool:
     matching = True
     for key in matchingDict:
         if key in originalDict:
             if isinstance(originalDict[key], dict) and isinstance(matchingDict[key], dict):
-                matching = CheckMatchingDictData(originalDict[key], matchingDict[key])
+                matching = check_matching_dict_data(originalDict[key], matchingDict[key])
             elif isinstance(originalDict[key], list) and isinstance(matchingDict[key], list):
                 matching = CheckMatchingListData(originalDict[key], matchingDict[key])
             else:
@@ -147,7 +147,7 @@ def CheckMatchingListData(originalList: list, matchingList: list) -> bool:
         if not matching:
             break
         if isinstance(originalList[i], dict) and isinstance(matchingList[i], dict):
-            matching = CheckMatchingDictData(originalList[i], matchingList[i])
+            matching = check_matching_dict_data(originalList[i], matchingList[i])
         elif isinstance(originalList[i], list) and isinstance(matchingList[i], list):
             matching = CheckMatchingListData(originalList[i], matchingList[i])
         else:
