@@ -2,7 +2,7 @@ import os
 
 from DockerBuildSystem import TerminalTools
 
-from rediskit.utils import base64JsonToDict
+from rediskit.utils import base64_json_to_dict
 
 TerminalTools.LoadDefaultEnvironmentVariablesFile("private.env")
 TerminalTools.LoadDefaultEnvironmentVariablesFile(".env")
@@ -21,7 +21,7 @@ REDIS_KIT_LOCK_ASYNC_SETTINGS_REDIS_NAMESPACE = os.environ.get("REDIS_KIT_LOCK_A
 REDIS_KIT_LOCK_CACHE_MUTEX = os.environ.get("REDIS_KIT_LOCK_CACHE_MUTEX", "REDIS_KIT_LOCK_CACHE_MUTEX")
 
 # Encryption Settings
-REDIS_KIT_ENCRYPTION_SECRET = base64JsonToDict(os.environ.get("REDIS_KIT_ENCRYPTION_SECRET", ""))
+REDIS_KIT_ENCRYPTION_SECRET = base64_json_to_dict(os.environ.get("REDIS_KIT_ENCRYPTION_SECRET", ""))
 
 # Semaphore Settings
 REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE = os.environ.get("REDIS_KIT_SEMAPHORE_SETTINGS_REDIS_NAMESPACE", f"{REDIS_TOP_NODE}:Semaphore")

@@ -4,7 +4,7 @@ import time
 import polars as pl
 import pytest
 
-from rediskit.memoize import RedisMemoize
+from rediskit.memoize import redis_memoize
 from rediskit.redis_client import get_redis_connection, get_redis_top_node, init_async_redis_connection_pool
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
@@ -30,7 +30,7 @@ def CleanupRedis(Connection):
 
 
 def testSyncCaching():
-    @RedisMemoize(memoizeKey="testKeySync", ttl=10, cacheType="zipJson", bypassCache=False)
+    @redis_memoize(memoize_key="testKeySync", ttl=10, cache_type="zipJson", bypass_cache=False)
     def slowFunc(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -50,7 +50,7 @@ def testSyncCaching():
 
 
 def testTtlExpiration():
-    @RedisMemoize(memoizeKey="testTtl", ttl=2, cacheType="zipJson")
+    @redis_memoize(memoize_key="testTtl", ttl=2, cache_type="zipJson")
     def slowFunc(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -78,7 +78,7 @@ def testTtlExpiration():
 
 
 def testBypassCacheStatic():
-    @RedisMemoize(memoizeKey="testBypassStatic", ttl=10, cacheType="zipJson", bypassCache=True)
+    @redis_memoize(memoize_key="testBypassStatic", ttl=10, cache_type="zipJson", bypass_cache=True)
     def slowFunc(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -102,7 +102,7 @@ def testBypassCacheCallable():
     def bypassFunc(*args, **kwargs):
         return kwargs.get("forceBypass", False)
 
-    @RedisMemoize(memoizeKey="testBypassCallable", ttl=10, cacheType="zipJson", bypassCache=bypassFunc)
+    @redis_memoize(memoize_key="testBypassCallable", ttl=10, cache_type="zipJson", bypass_cache=bypassFunc)
     def slowFunc(tenantId: str, x, forceBypass=False):
         time.sleep(1)
         return {"result": x}
@@ -129,7 +129,7 @@ def testBypassCacheCallable():
 
 
 def testCallableMemoizeKey():
-    @RedisMemoize(memoizeKey=lambda tenantId, x: f"key_{x}", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key=lambda tenantId, x: f"key_{x}", ttl=10, cache_type="zipJson")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"value": x}
@@ -155,7 +155,7 @@ def testCallableMemoizeKey():
 
 
 def testCallableTtl():
-    @RedisMemoize(memoizeKey="testCallableTtl", ttl=lambda tenantId, delay: delay, cacheType="zipJson")
+    @redis_memoize(memoize_key="testCallableTtl", ttl=lambda tenantId, delay: delay, cache_type="zipJson")
     def func(tenantId: str, delay):
         time.sleep(1)
         return {"delay": delay}
@@ -183,7 +183,7 @@ def testCallableTtl():
 def testMissingTenantIdAndKey():
     with pytest.raises(ValueError):
 
-        @RedisMemoize(memoizeKey=lambda x: None, ttl=10, cacheType="zipJson")
+        @redis_memoize(memoize_key=lambda x: None, ttl=10, cache_type="zipJson")
         def func(x):
             return {"value": x}
 
@@ -200,7 +200,7 @@ def testMissingTenantIdAndKey():
 async def testAsyncCaching():
     init_async_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey="testAsync", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="testAsync", ttl=10, cache_type="zipJson")
     async def slowFunc(tenantId: str, x):
         await asyncio.sleep(1)
         return {"asyncResult": x}
@@ -227,7 +227,7 @@ async def testAsyncBypass():
     def bypassFunc(*args, **kwargs):
         return kwargs.get("forceBypass", False)
 
-    @RedisMemoize(memoizeKey="testAsyncBypass", ttl=10, cacheType="zipJson", bypassCache=bypassFunc)
+    @redis_memoize(memoize_key="testAsyncBypass", ttl=10, cache_type="zipJson", bypass_cache=bypassFunc)
     async def slowFunc(tenantId: str, x, forceBypass=False):
         await asyncio.sleep(1)
         return {"asyncResult": x}
@@ -259,12 +259,12 @@ async def testAsyncBypass():
 
 
 def testZipPickledVsZipJson():
-    @RedisMemoize(memoizeKey="testZipPickled", ttl=10, cacheType="zipPickled")
+    @redis_memoize(memoize_key="testZipPickled", ttl=10, cache_type="zipPickled")
     def funcPickled(tenantId: str, x) -> pl.DataFrame:
         time.sleep(1)
         return pl.DataFrame([{"value": x}])
 
-    @RedisMemoize(memoizeKey="testZipJson", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="testZipJson", ttl=10, cache_type="zipJson")
     def funcJson(tenantId: str, x):
         time.sleep(1)
         return {"value": x}
@@ -302,7 +302,7 @@ def testZipPickledVsZipJson():
 def testInvalidCacheType():
     with pytest.raises(ValueError):
 
-        @RedisMemoize(memoizeKey="invalidCacheType", ttl=10, cacheType="invalid")
+        @redis_memoize(memoize_key="invalidCacheType", ttl=10, cache_type="invalid")
         def func(tenantId: str, x):
             return {"value": x}
 
@@ -312,7 +312,7 @@ def testInvalidCacheType():
 def testErrorNotCached():
     call_count = [0]  # mutable counter
 
-    @RedisMemoize(memoizeKey="errorNotCached", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="errorNotCached", ttl=10, cache_type="zipJson")
     def errorFunc(tenantId: str, x):
         call_count[0] += 1
         if call_count[0] == 1:
@@ -328,7 +328,7 @@ def testErrorNotCached():
 
 def testResetTtlUponReadTrue():
     # Test that TTL is reset upon reading the cache.
-    @RedisMemoize(memoizeKey="resetTtlTrue", ttl=3, cacheType="zipJson", resetTtlUponRead=True)
+    @redis_memoize(memoize_key="resetTtlTrue", ttl=3, cache_type="zipJson", reset_ttl_upon_read=True)
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -358,7 +358,7 @@ def testResetTtlUponReadTrue():
 
 def testResetTtlUponReadFalse():
     # Test that TTL is not reset upon reading the cache when resetTtlUponRead is False.
-    @RedisMemoize(memoizeKey="resetTtlFalse", ttl=3, cacheType="zipJson", resetTtlUponRead=False)
+    @redis_memoize(memoize_key="resetTtlFalse", ttl=3, cache_type="zipJson", reset_ttl_upon_read=False)
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -388,7 +388,7 @@ def testResetTtlUponReadFalse():
 
 
 def testReturnNoneSync():
-    @RedisMemoize(memoizeKey="returnNoneSync", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="returnNoneSync", ttl=10, cache_type="zipJson")
     def func(tenantId: str, x):
         time.sleep(1)
         return None
@@ -403,7 +403,7 @@ def testReturnNoneSync():
 async def testReturnNoneAsync():
     init_async_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey="returnNoneAsync", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="returnNoneAsync", ttl=10, cache_type="zipJson")
     async def func(tenantId: str, x):
         await asyncio.sleep(1)
         return None
@@ -416,7 +416,7 @@ async def testReturnNoneAsync():
 
 def testTtlNone():
     # Ttl is allowed to be null, no ttl is set if ttl is None
-    @RedisMemoize(memoizeKey="ttlNone", ttl=None, cacheType="zipJson")
+    @redis_memoize(memoize_key="ttlNone", ttl=None, cache_type="zipJson")
     def func(tenantId: str, x):
         return x
 
@@ -427,7 +427,7 @@ def testTtlNone():
 
 def testMutableReturn():
     # Test that modifying the returned mutable object does not affect the cached value
-    @RedisMemoize(memoizeKey="mutableReturn", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="mutableReturn", ttl=10, cache_type="zipJson")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": [x]}
@@ -442,7 +442,7 @@ def testMutableReturn():
 
 def testDifferentTenants():
     # Ensure that caching is isolated per tenantId
-    @RedisMemoize(memoizeKey="differentTenants", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="differentTenants", ttl=10, cache_type="zipJson")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -462,7 +462,7 @@ def testConcurrentSyncCaching():
     # Test that concurrent calls only execute the function once
     call_count = [0]
 
-    @RedisMemoize(memoizeKey="concurrentSync", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="concurrentSync", ttl=10, cache_type="zipJson")
     def func(tenantId: str, x):
         call_count[0] += 1
         time.sleep(1)
@@ -485,7 +485,7 @@ async def testConcurrentAsyncCaching():
     # Test that concurrent async calls only execute the function once
     call_count = [0]
 
-    @RedisMemoize(memoizeKey="concurrentAsync", ttl=10, cacheType="zipJson")
+    @redis_memoize(memoize_key="concurrentAsync", ttl=10, cache_type="zipJson")
     async def func(tenantId: str, x):
         call_count[0] += 1
         await asyncio.sleep(1)
@@ -501,12 +501,12 @@ async def testConcurrentAsyncCaching():
 
 def testEnabledEncryption():
     # Test that modifying the returned mutable object does not affect the cached value
-    @RedisMemoize(memoizeKey="encryptedTest", ttl=10, cacheType="zipJson", enableEncryption=True)
+    @redis_memoize(memoize_key="encryptedTest", ttl=10, cache_type="zipJson", enable_encryption=True)
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
 
-    @RedisMemoize(memoizeKey="encryptedTestDf", ttl=10, cacheType="zipPickled", enableEncryption=True)
+    @redis_memoize(memoize_key="encryptedTestDf", ttl=10, cache_type="zipPickled", enable_encryption=True)
     def func2(tenantId: str, x):
         time.sleep(1)
         return x

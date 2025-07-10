@@ -4,7 +4,7 @@ import time
 import polars as pl
 import pytest
 
-from rediskit.memoize import RedisMemoize
+from rediskit.memoize import redis_memoize
 from rediskit.redis_client import get_redis_connection, get_redis_top_node, init_async_redis_connection_pool
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
@@ -24,7 +24,7 @@ def CleanupRedis(Connection):
 
 
 def testSyncHashCaching():
-    @RedisMemoize(memoizeKey=lambda tenantId, x: f"testHashKey:{tenantId}:{x}", ttl=10, cacheType="zipJson", storageType="hash")
+    @redis_memoize(memoize_key=lambda tenantId, x: f"testHashKey:{tenantId}:{x}", ttl=10, cache_type="zipJson", storage_type="hash")
     def slowFunc(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -44,7 +44,7 @@ def testSyncHashCaching():
 
 
 def testHashTtlExpiration():
-    @RedisMemoize(memoizeKey="hashTtl:testField", ttl=2, cacheType="zipJson", storageType="hash")
+    @redis_memoize(memoize_key="hashTtl:testField", ttl=2, cache_type="zipJson", storage_type="hash")
     def slowFunc(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -64,7 +64,7 @@ def testHashTtlExpiration():
 
 
 def testResetTtlUponReadTrueHash():
-    @RedisMemoize(memoizeKey="hashResetTtl:field", ttl=3, cacheType="zipJson", resetTtlUponRead=True, storageType="hash")
+    @redis_memoize(memoize_key="hashResetTtl:field", ttl=3, cache_type="zipJson", reset_ttl_upon_read=True, storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -82,7 +82,7 @@ def testResetTtlUponReadTrueHash():
 
 
 def testResetTtlUponReadFalseHash():
-    @RedisMemoize(memoizeKey="hashResetTtlFalse:field", ttl=3, cacheType="zipJson", resetTtlUponRead=False, storageType="hash")
+    @redis_memoize(memoize_key="hashResetTtlFalse:field", ttl=3, cache_type="zipJson", reset_ttl_upon_read=False, storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -103,7 +103,7 @@ def testResetTtlUponReadFalseHash():
 
 
 def testHashEncryption():
-    @RedisMemoize(memoizeKey="encryptedHash:testField", ttl=10, cacheType="zipJson", enableEncryption=True, storageType="hash")
+    @redis_memoize(memoize_key="encryptedHash:testField", ttl=10, cache_type="zipJson", enable_encryption=True, storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"secret": x}
@@ -118,7 +118,7 @@ def testHashEncryption():
 async def testAsyncHashCaching():
     init_async_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey=lambda tenantId, x: f"testAsyncHashKey:{tenantId}:{x}", ttl=10, cacheType="zipJson", storageType="hash")
+    @redis_memoize(memoize_key=lambda tenantId, x: f"testAsyncHashKey:{tenantId}:{x}", ttl=10, cache_type="zipJson", storage_type="hash")
     async def slowFunc(tenantId: str, x):
         await asyncio.sleep(1)
         return {"asyncResult": x}
@@ -141,7 +141,7 @@ async def testAsyncHashCaching():
 async def testAsyncHashEncryption():
     init_async_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey="encryptedAsyncHash:testField", ttl=10, cacheType="zipJson", enableEncryption=True, storageType="hash")
+    @redis_memoize(memoize_key="encryptedAsyncHash:testField", ttl=10, cache_type="zipJson", enable_encryption=True, storage_type="hash")
     async def func(tenantId: str, x):
         await asyncio.sleep(1)
         return {"secret": x}
@@ -153,7 +153,7 @@ async def testAsyncHashEncryption():
 
 
 def testHashBypassCache():
-    @RedisMemoize(memoizeKey="bypassHash:field", ttl=10, cacheType="zipJson", bypassCache=True, storageType="hash")
+    @redis_memoize(memoize_key="bypassHash:field", ttl=10, cache_type="zipJson", bypass_cache=True, storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return {"result": x}
@@ -173,7 +173,7 @@ def testHashBypassCache():
 
 
 def testHashPickledCaching():
-    @RedisMemoize(memoizeKey="pickledHash:field", ttl=10, cacheType="zipPickled", storageType="hash")
+    @redis_memoize(memoize_key="pickledHash:field", ttl=10, cache_type="zipPickled", storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         # Use something not JSON serializable
@@ -186,7 +186,7 @@ def testHashPickledCaching():
 
 
 def testHashPickledTtlExpiration():
-    @RedisMemoize(memoizeKey="pickledHashTtl:field", ttl=2, cacheType="zipPickled", storageType="hash")
+    @redis_memoize(memoize_key="pickledHashTtl:field", ttl=2, cache_type="zipPickled", storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return pl.DataFrame([{"a": x}])
@@ -204,7 +204,7 @@ def testHashPickledTtlExpiration():
 
 
 def testHashPickledEncryption():
-    @RedisMemoize(memoizeKey="encryptedPickledHash:field", ttl=10, cacheType="zipPickled", enableEncryption=True, storageType="hash")
+    @redis_memoize(memoize_key="encryptedPickledHash:field", ttl=10, cache_type="zipPickled", enable_encryption=True, storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return pl.DataFrame([{"b": x}])
@@ -219,7 +219,7 @@ def testHashPickledEncryption():
 async def testAsyncHashPickledCaching():
     init_async_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey="asyncPickledHash:field", ttl=10, cacheType="zipPickled", storageType="hash")
+    @redis_memoize(memoize_key="asyncPickledHash:field", ttl=10, cache_type="zipPickled", storage_type="hash")
     async def func(tenantId: str, x):
         await asyncio.sleep(1)
         return pl.DataFrame([{"c": x}])
@@ -234,7 +234,7 @@ async def testAsyncHashPickledCaching():
 async def testAsyncHashPickledEncryption():
     init_async_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey="asyncEncryptedPickledHash:field", ttl=10, cacheType="zipPickled", enableEncryption=True, storageType="hash")
+    @redis_memoize(memoize_key="asyncEncryptedPickledHash:field", ttl=10, cache_type="zipPickled", enable_encryption=True, storage_type="hash")
     async def func(tenantId: str, x):
         await asyncio.sleep(1)
         return pl.DataFrame([{"d": x}])
@@ -246,7 +246,7 @@ async def testAsyncHashPickledEncryption():
 
 
 def testHashPickledBypassCache():
-    @RedisMemoize(memoizeKey="pickledHashBypass:field", ttl=10, cacheType="zipPickled", bypassCache=True, storageType="hash")
+    @redis_memoize(memoize_key="pickledHashBypass:field", ttl=10, cache_type="zipPickled", bypass_cache=True, storage_type="hash")
     def func(tenantId: str, x):
         time.sleep(1)
         return pl.DataFrame([{"e": x}])

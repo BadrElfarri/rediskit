@@ -40,7 +40,7 @@ class Encrypter:
         else:
             raise ValueError("data expected to be bytes or str")
 
-        if self.isEncrypted(dataToEncrypt, raiseIfEncrypted):
+        if self.is_encrypted(dataToEncrypt, raiseIfEncrypted):
             return data
 
         compressedData: bytes = zstd.compress(dataToEncrypt) if useZstd else gzip.compress(dataToEncrypt)
@@ -97,14 +97,14 @@ class Encrypter:
         return deCompressed.decode() if isText else deCompressed  # type: ignore # not able to check this properly
 
     @staticmethod
-    def getEncryptionKeyVersionNumber(versionKey: str) -> int:
+    def get_encryption_key_version_number(versionKey: str) -> int:
         match = re.match(r"^__enc_v(\d+)$", versionKey)
         if not match:
             raise ValueError(f"Invalid version string: {versionKey}")
         return int(match.group(1))
 
     @staticmethod
-    def isEncrypted(data: str | bytes | None, raiseIfEncrypted: bool = False) -> bool:
+    def is_encrypted(data: str | bytes | None, raiseIfEncrypted: bool = False) -> bool:
         # NB! can be false positive if a secret starts with "__enc_v"..., this risk is just accepted for now
         if data is None:
             return False
@@ -116,11 +116,11 @@ class Encrypter:
         return True
 
     @staticmethod
-    def generateNewHexKey() -> str:
+    def generate_new_hex_key() -> str:
         """
         Generate a new 32-byte key and return it as a hex-encoded string.
 
-        >>> key = Encrypter.generateNewHexKey()
+        >>> key = Encrypter.generate_new_hex_key()
         >>> isinstance(key, str)
         True
         >>> len(key) == 64
@@ -131,11 +131,11 @@ class Encrypter:
         return hexKey
 
     @staticmethod
-    def encodeKeysDictToBase64(keys: dict) -> str:
+    def encode_keys_dict_to_base64(keys: dict) -> str:
         """
         Convert the keys dictionary to a JSON string and encode it in base64.
 
-        >>> Encrypter.encodeKeysDictToBase64({"v1": "abcdef"})
+        >>> Encrypter.encode_keys_dict_to_base64({"v1": "abcdef"})
         'eyJ2MSI6ICJhYmNkZWYifQ=='
         """
         json_str = json.dumps(keys)
@@ -143,11 +143,11 @@ class Encrypter:
         return base64_str
 
     @staticmethod
-    def decodeKeysFromBase64(encodedKeys: str) -> dict:
+    def decode_keys_from_base64(encodedKeys: str) -> dict:
         """
         Decode a base64-encoded JSON string into a dictionary of keys.
 
-        >>> Encrypter.decodeKeysFromBase64("eyJ2MSI6ICJhYmNkZWYifQ==")
+        >>> Encrypter.decode_keys_from_base64("eyJ2MSI6ICJhYmNkZWYifQ==")
         {'v1': 'abcdef'}
         """
         try:
@@ -160,9 +160,9 @@ class Encrypter:
             raise ValueError("Failed to decode keys from base64 string.") from e
 
     @staticmethod
-    def appendNewEncryptKey(currentKeys: str):
-        decodedkeys = Encrypter.decodeKeysFromBase64(currentKeys)
+    def append_new_encrypt_key(currentKeys: str):
+        decodedkeys = Encrypter.decode_keys_from_base64(currentKeys)
         latestKey = list(decodedkeys.keys())[-1]
-        newVersion = f"{Encrypter.VERSION_PREFIX}{Encrypter.getEncryptionKeyVersionNumber(latestKey) + 1}"
-        decodedkeys.update({newVersion: Encrypter.generateNewHexKey()})
-        return {"newKeysDecoded": decodedkeys, "EncryptedKeys": Encrypter.encodeKeysDictToBase64(decodedkeys)}
+        newVersion = f"{Encrypter.VERSION_PREFIX}{Encrypter.get_encryption_key_version_number(latestKey) + 1}"
+        decodedkeys.update({newVersion: Encrypter.generate_new_hex_key()})
+        return {"newKeysDecoded": decodedkeys, "EncryptedKeys": Encrypter.encode_keys_dict_to_base64(decodedkeys)}

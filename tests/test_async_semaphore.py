@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 
 from rediskit import redis_client
-from rediskit.asyncSemaphore import AsyncSemaphore
+from rediskit.async_semaphore import AsyncSemaphore
 from rediskit.redis_client import get_async_redis_connection, get_redis_top_node
 
 TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"

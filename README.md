@@ -28,14 +28,14 @@ poetry add rediskit
 ### Basic Setup
 
 ```python
-from rediskit import RedisMemoize, init_redis_connection_pool
+from rediskit import redis_memoize, init_redis_connection_pool
 
 # Initialize Redis connection pool (call once at app startup)
 init_redis_connection_pool()
 
 
 # Cache expensive function results
-@RedisMemoize(memoizeKey="expensive_calc", ttl=300)
+@redis_memoize(memoize_key="expensive_calc", ttl=300)
 def expensive_calculation(tenantId: str, value: int) -> dict:
     # Simulate expensive computation
     import time
@@ -52,13 +52,14 @@ result = expensive_calculation("tenant1", 10)  # Returns instantly from cache
 
 ```python
 import redis
-from rediskit import RedisMemoize
+from rediskit import redis_memoize
 
 # Use your own Redis connection
 my_redis = redis.Redis(host='my-redis-host', port=6379, db=1)
 
-@RedisMemoize(
-    memoizeKey="custom_calc", 
+
+@redis_memoize(
+    memoize_key="custom_calc",
     ttl=600,
     connection=my_redis
 )
@@ -69,25 +70,27 @@ def my_function(tenantId: str, data: dict) -> dict:
 ### Advanced Caching Options
 
 ```python
-from rediskit import RedisMemoize
+from rediskit import redis_memoize
+
 
 # Hash-based storage with encryption
-@RedisMemoize(
-    memoizeKey=lambda tenantId, user_id: f"user_profile:{tenantId}:{user_id}",
+@redis_memoize(
+    memoize_key=lambda tenantId, user_id: f"user_profile:{tenantId}:{user_id}",
     ttl=3600,
-    storageType="hash",  # Store in Redis hash for efficient field access
-    enableEncryption=True,  # Encrypt sensitive data
-    cacheType="zipJson"  # JSON serialization with compression
+    storage_type="hash",  # Store in Redis hash for efficient field access
+    enable_encryption=True,  # Encrypt sensitive data
+    cache_type="zipJson"  # JSON serialization with compression
 )
 def get_user_profile(tenantId: str, user_id: str) -> dict:
     # Fetch user data from database
     return {"user_id": user_id, "name": "John Doe", "email": "john@example.com"}
 
+
 # Dynamic TTL and cache bypass
-@RedisMemoize(
-    memoizeKey="dynamic_data",
+@redis_memoize(
+    memoize_key="dynamic_data",
     ttl=lambda tenantId, priority: 3600 if priority == "high" else 300,
-    bypassCache=lambda tenantId, force_refresh: force_refresh
+    bypass_cache=lambda tenantId, force_refresh: force_refresh
 )
 def get_dynamic_data(tenantId: str, priority: str, force_refresh: bool = False) -> dict:
     return {"data": "fresh_data", "priority": priority}
@@ -97,13 +100,13 @@ def get_dynamic_data(tenantId: str, priority: str, force_refresh: bool = False) 
 
 ```python
 import asyncio
-from rediskit import RedisMemoize, init_async_redis_connection_pool
+from rediskit import redis_memoize, init_async_redis_connection_pool
 
 # Initialize async Redis connection pool
 await init_async_redis_connection_pool()
 
 
-@RedisMemoize(memoizeKey="async_calc", ttl=300)
+@redis_memoize(memoize_key="async_calc", ttl=300)
 async def async_expensive_function(tenantId: str, value: int) -> dict:
     await asyncio.sleep(1)  # Simulate async work
     return {"async_result": value * 100}
@@ -116,15 +119,15 @@ result = await async_expensive_function("tenant1", 5)
 ### Distributed Locking
 
 ```python
-from rediskit import GetRedisMutexLock, GetAsyncRedisMutexLock
+from rediskit import get_redis_mutex_lock, get_async_redis_mutex_lock
 
 # Synchronous distributed lock
-with GetRedisMutexLock("critical_section", expire=30) as lock:
+with get_redis_mutex_lock("critical_section", expire=30) as lock:
     # Only one process can execute this block at a time
     perform_critical_operation()
 
 # Async distributed lock
-async with GetAsyncRedisMutexLock("async_critical_section", expire=30) as lock:
+async with get_async_redis_mutex_lock("async_critical_section", expire=30) as lock:
     await perform_async_critical_operation()
 ```
 
@@ -135,7 +138,7 @@ from rediskit import Encrypter
 
 # Generate new encryption keys
 encrypter = Encrypter()
-new_key = encrypter.generateNewHexKey()
+new_key = encrypter.generate_new_hex_key()
 
 # Encrypt/decrypt data manually
 encrypted = encrypter.encrypt("sensitive data", useZstd=True)

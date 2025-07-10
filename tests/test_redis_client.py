@@ -124,6 +124,15 @@ def test_set_ttl_for_key(connection):
     assert load_exact_cache_from_redis(TEST_TENANT_ID, key, connection=connection) is None
 
 
+def test_set_ttl_for_key_directly(connection):
+    key = "ttlkey"
+    data = {"foo": "bar"}
+    dump_cache_to_redis(TEST_TENANT_ID, key, data, connection=connection, ttl=2)
+    assert load_exact_cache_from_redis(TEST_TENANT_ID, key, connection=connection)
+    time.sleep(2.1)
+    assert load_exact_cache_from_redis(TEST_TENANT_ID, key, connection=connection) is None
+
+
 def test_dump_and_load_blob(connection):
     key = "blobkey"
     blob = "this is a test blob"

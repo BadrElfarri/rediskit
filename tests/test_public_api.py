@@ -1,6 +1,6 @@
 import redis
 
-from rediskit.memoize import RedisMemoize
+from rediskit.memoize import redis_memoize
 from rediskit.redis_client import init_redis_connection_pool
 
 
@@ -10,7 +10,7 @@ def test_basic_usage():
 
     init_redis_connection_pool()
 
-    @RedisMemoize(memoizeKey="test_basic", ttl=300)
+    @redis_memoize(memoize_key="test_basic", ttl=300)
     def basic_function(tenantId: str, value: int) -> dict:
         print(f"Computing for {value}")
         return {"result": value * 2}
@@ -31,7 +31,7 @@ def test_custom_connection():
 
     custom_redis = redis.Redis(host="localhost", port=6379, db=0)
 
-    @RedisMemoize(memoizeKey="test_custom", ttl=300, connection=custom_redis)
+    @redis_memoize(memoize_key="test_custom", ttl=300, connection=custom_redis)
     def custom_function(tenantId: str, data: str) -> dict:
         print(f"Processing {data}")
         return {"processed": data.upper()}
@@ -47,7 +47,7 @@ def test_hash_storage():
     """Test hash-based storage."""
     print("\nTesting hash storage...")
 
-    @RedisMemoize(memoizeKey=lambda tenantId, user_id: f"user:{tenantId}:{user_id}", ttl=600, storageType="hash", enableEncryption=True)
+    @redis_memoize(memoize_key=lambda tenantId, user_id: f"user:{tenantId}:{user_id}", ttl=600, storage_type="hash", enable_encryption=True)
     def get_user_data(tenantId: str, user_id: str) -> dict:
         print(f"Fetching user {user_id}")
         return {"user_id": user_id, "name": f"User {user_id}"}

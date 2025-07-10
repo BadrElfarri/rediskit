@@ -42,7 +42,7 @@ async def redis_single_connection_context():
     try:
         yield client
     finally:
-        await client.close()
+        await client.aclose()
         await pool.disconnect()
 
 
@@ -65,11 +65,18 @@ def get_redis_top_node(tenant_id: str | None, key: str | None, top_node: str = c
 
 
 def dump_cache_to_redis(
-    tenant_id: str | None, key: str, payload: dict | list[dict], connection: Redis | None = None, top_node: Callable[..., str] = get_redis_top_node
+    tenant_id: str | None,
+    key: str,
+    payload: dict | list[dict],
+    connection: Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+    ttl: int | None = None,
 ) -> None:
     nodeKey = top_node(tenant_id, key)
     connection = connection if connection is not None else get_redis_connection()
     connection.execute_command("JSON.SET", nodeKey, ".", json.dumps(payload))
+    if ttl is not None:
+        set_redis_cache_expiry(tenant_id, key, expiry=ttl, connection=connection, top_node=top_node)
 
 
 def dump_multiple_payload_to_redis(

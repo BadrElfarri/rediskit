@@ -290,3 +290,29 @@ def test_semaphore_ttl_renewal(redis_conn):
     time.sleep(ttl + 1)
     # Should no longer be held
     assert not sem.is_acquired_by_process()
+
+
+def test_semaphore_acquire_and_release(redis_conn):
+    # Simulate process 1: acquire the lock and "send" the process_unique_id
+    sem1 = semaphore(redis_conn, "someTest", limit=2)
+    acquired = sem1.acquire_lock()
+    assert acquired, "Should be able to acquire the lock"
+    unique_id = sem1.process_unique_id
+
+    # Simulate sending process_unique_id via RabbitMQ (just variable passing here)
+    sent_process_unique_id = unique_id
+
+    # Simulate "another process" (new instance), using the same unique_id
+    sem2 = semaphore(redis_conn, "someTest", limit=2)
+    sem2.process_unique_id = sent_process_unique_id
+    assert sem2.is_acquired_by_process(), "Semaphore should show as acquired by this process_unique_id"
+
+    # Now "revoke" (release) the lock from this new process instance
+    sem2.release_lock()
+
+    # Lock should now be released
+    assert not sem1.is_acquired_by_process(), "Lock should be released (no longer held by original unique_id)"
+    assert not sem2.is_acquired_by_process(), "Lock should be released (no longer held by sem2 either)"
+
+    # The active count should be zero
+    assert sem2.get_active_count() == 0, "Semaphore active count should be zero after release"

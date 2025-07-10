@@ -30,15 +30,15 @@ def test_is_encrypted(encrypter):
     """Test the isEncrypted method for both non-encrypted and encrypted strings."""
     plaintext = "Hello World"
     # Plain text should not be recognized as encrypted.
-    assert encrypter.isEncrypted(plaintext) is False
+    assert encrypter.is_encrypted(plaintext) is False
 
     # A properly encrypted string should be detected as encrypted.
     encrypted = encrypter.encrypt(plaintext)
-    assert encrypter.isEncrypted(encrypted) is True
+    assert encrypter.is_encrypted(encrypted) is True
 
     # If raiseIfEncrypted is True, then an exception should be raised.
     with pytest.raises(Exception, match="The data is already encrypted"):
-        encrypter.isEncrypted(encrypted, raiseIfEncrypted=True)
+        encrypter.is_encrypted(encrypted, raiseIfEncrypted=True)
 
     with pytest.raises(Exception, match="The data is already encrypted"):
         encrypter.encrypt(encrypted, raiseIfEncrypted=True)
@@ -46,17 +46,17 @@ def test_is_encrypted(encrypter):
 
 def test_is_encrypted_none():
     """Test isEncrypted with None input."""
-    assert Encrypter.isEncrypted(None) is False
+    assert Encrypter.is_encrypted(None) is False
 
 
 def test_is_encrypted_no_match():
     """Test isEncrypted with data that has correct prefix but isn't properly encrypted."""
     # Has prefix but no colon
-    assert Encrypter.isEncrypted("__enc_v1without_colon") is False
+    assert Encrypter.is_encrypted("__enc_v1without_colon") is False
 
     # Has prefix and colon but invalid base64
     with pytest.raises(Exception):
-        Encrypter.isEncrypted("__enc_v1:not!valid!base64!", raiseIfEncrypted=True)
+        Encrypter.is_encrypted("__enc_v1:not!valid!base64!", raiseIfEncrypted=True)
 
 
 def test_decrypt_none(encrypter):
@@ -78,7 +78,7 @@ def test_decrypt_invalid_format(encrypter):
 
 def test_generate_new_hex_key():
     """Test that generateNewHexKey produces a valid hex string of the proper length."""
-    key = Encrypter.generateNewHexKey()
+    key = Encrypter.generate_new_hex_key()
     # Check that key is a string and its length is 64.
     assert isinstance(key, str)
     assert len(key) == 64
@@ -92,8 +92,8 @@ def test_generate_new_hex_key():
 def test_encode_decode_keys():
     """Test that a keys dictionary roundtrips through base64 encode/decode methods."""
     keys_dict = {"v1": "abcdef"}
-    encoded = Encrypter.encodeKeysDictToBase64(keys_dict)
-    decoded = Encrypter.decodeKeysFromBase64(encoded)
+    encoded = Encrypter.encode_keys_dict_to_base64(keys_dict)
+    decoded = Encrypter.decode_keys_from_base64(encoded)
     assert decoded == keys_dict
 
 
@@ -103,8 +103,8 @@ def test_append_new_encrypt_key():
     the updated keys dictionary as well as a base64-encoded JSON string.
     """
     initial_keys = {"__enc_v1": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567"}
-    encoded_keys = Encrypter.encodeKeysDictToBase64(initial_keys)
-    result = Encrypter.appendNewEncryptKey(encoded_keys)
+    encoded_keys = Encrypter.encode_keys_dict_to_base64(initial_keys)
+    result = Encrypter.append_new_encrypt_key(encoded_keys)
     new_keys = result["newKeysDecoded"]
     encoded_new_keys = result["EncryptedKeys"]
 
@@ -114,7 +114,7 @@ def test_append_new_encrypt_key():
     assert "__enc_v2" in new_keys
 
     # Confirm that the returned EncryptedKeys base64 string decodes to the same dictionary.
-    decoded_from_encrypted = Encrypter.decodeKeysFromBase64(encoded_new_keys)
+    decoded_from_encrypted = Encrypter.decode_keys_from_base64(encoded_new_keys)
     assert decoded_from_encrypted == new_keys
 
 
@@ -427,8 +427,8 @@ def test_is_encrypted_detection(enc):
     clear = "definitely not encrypted"
     encrypted = enc.encrypt(clear)
 
-    assert not enc.isEncrypted(clear)
-    assert enc.isEncrypted(encrypted)
+    assert not enc.is_encrypted(clear)
+    assert enc.is_encrypted(encrypted)
 
     # If raiseIfEncrypted=True the helper bubbles up through encrypt()
     with pytest.raises(Exception, match="already encrypted"):
@@ -439,9 +439,9 @@ def test_is_encrypted_detection(enc):
 
 
 def test_get_version_number_valid_and_invalid():
-    assert Encrypter.getEncryptionKeyVersionNumber("__enc_v42") == 42
+    assert Encrypter.get_encryption_key_version_number("__enc_v42") == 42
     with pytest.raises(ValueError):
-        Encrypter.getEncryptionKeyVersionNumber("enc_v2")  # bad prefix
+        Encrypter.get_encryption_key_version_number("enc_v2")  # bad prefix
 
 
 # --------------------------------------------------------------------------- #
@@ -500,14 +500,14 @@ def test_encrypt_decrypt_roundtrip_bytes(enc, use_zstd, tag):
 
 def test_is_encrypted_bytes(enc):
     raw = b"plain binary data"
-    assert enc.isEncrypted(raw) is False
+    assert enc.is_encrypted(raw) is False
 
     token = enc.encrypt(raw)
-    assert enc.isEncrypted(token) is True
+    assert enc.is_encrypted(token) is True
 
     # raiseIfEncrypted=True must raise
     with pytest.raises(Exception):
-        enc.isEncrypted(token, raiseIfEncrypted=True)
+        enc.is_encrypted(token, raiseIfEncrypted=True)
 
     # suppressing the guard returns the identical bytes object
     same = enc.encrypt(token, raiseIfEncrypted=False)

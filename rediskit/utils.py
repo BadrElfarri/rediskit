@@ -6,122 +6,122 @@ import uuid
 from typing import Any
 
 
-def base64JsonToDict(keysBase64: str | None) -> dict[str, str]:
-    if not keysBase64:
+def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
+    if not keys_base64:
         raise ValueError("Key is None.")
     try:
         # Decode from base64 to a JSON string, then load it into a dict
-        decodedJson = base64.b64decode(keysBase64).decode("utf-8")
+        decodedJson = base64.b64decode(keys_base64).decode("utf-8")
         decoded = json.loads(decodedJson)
         return decoded
     except Exception as e:
         raise ValueError("Invalid key format") from e
 
 
-def JsonEncoder(value: Any, raiseIfNoMatch: bool = False):
+def json_encoder(value: Any, raise_if_no_match: bool = False):
     if isinstance(value, enum.Enum):
         return value.value
     elif isinstance(value, uuid.UUID):
         return str(value)
     elif isinstance(value, (datetime.datetime, datetime.date)):
         return value.isoformat()
-    elif raiseIfNoMatch:
+    elif raise_if_no_match:
         raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
     return value
 
 
-def SerializeValues(value: Any) -> Any:
+def serialize_values(value: Any) -> Any:
     if isinstance(value, dict):
-        serializedDict = {}
+        serialized_dict = {}
         for dictKey, dictValue in value.items():
-            serializedKey = JsonEncoder(dictKey)
-            serializedDict[serializedKey] = SerializeValues(dictValue)
-        return serializedDict
+            serialized_key = json_encoder(dictKey)
+            serialized_dict[serialized_key] = serialize_values(dictValue)
+        return serialized_dict
     elif isinstance(value, list):
-        serializedList = [SerializeValues(v) for v in value]
-        return serializedList
-    return JsonEncoder(value)
+        serialized_list = [serialize_values(v) for v in value]
+        return serialized_list
+    return json_encoder(value)
 
 
-def DictToList(items: dict | None) -> list[Any]:
-    listItems: list[Any] = []
+def dict_to_list(items: dict | None) -> list[Any]:
+    list_items: list[Any] = []
     if items is None:
-        return listItems
+        return list_items
     for key in items:
-        listItems.append(items[key])
-    return listItems
+        list_items.append(items[key])
+    return list_items
 
 
-def DeserializeDictModelProperty(items: dict | None, modelType: Any) -> None:
+def deserialize_dict_model_property(items: dict | None, model_type: Any) -> None:
     if isinstance(items, dict):
         for key in items:
             value = items[key]
             if isinstance(value, dict):
-                items[key] = modelType(**value)
+                items[key] = model_type(**value)
 
 
-def MergeDictData(oldDict: dict, newDict: dict) -> dict:
-    mergedDict = dict(oldDict)
-    for key in newDict:
-        if key in mergedDict:
-            if isinstance(mergedDict[key], dict) and isinstance(newDict[key], dict):
-                mergedDict[key] = MergeDictData(mergedDict[key], newDict[key])
+def merge_dict_data(old_dict: dict, new_dict: dict) -> dict:
+    merged_dict = dict(old_dict)
+    for key in new_dict:
+        if key in merged_dict:
+            if isinstance(merged_dict[key], dict) and isinstance(new_dict[key], dict):
+                merged_dict[key] = merge_dict_data(merged_dict[key], new_dict[key])
             else:
-                mergedDict[key] = newDict[key]
+                merged_dict[key] = new_dict[key]
         else:
-            mergedDict[key] = newDict[key]
-    return mergedDict
+            merged_dict[key] = new_dict[key]
+    return merged_dict
 
 
-def RemoveNonesFromDictData(originalDict: dict) -> dict:
-    cleanDict = dict(originalDict)
-    keysToPop = []
-    for key in cleanDict:
-        if isinstance(cleanDict[key], dict):
-            cleanDict[key] = RemoveNonesFromDictData(cleanDict[key])
+def remove_nones_from_dict_data(original_dict: dict) -> dict:
+    clean_dict = dict(original_dict)
+    keys_to_pop = []
+    for key in clean_dict:
+        if isinstance(clean_dict[key], dict):
+            clean_dict[key] = remove_nones_from_dict_data(clean_dict[key])
         else:
-            if cleanDict[key] is None:
-                keysToPop.append(key)
-    for keyToPop in keysToPop:
-        cleanDict.pop(keyToPop)
-    return cleanDict
+            if clean_dict[key] is None:
+                keys_to_pop.append(key)
+    for key_to_pop in keys_to_pop:
+        clean_dict.pop(key_to_pop)
+    return clean_dict
 
 
-def RemoveMatchingDictData(originalDict: dict, matchingDict: dict) -> tuple[dict, dict]:
-    changedData = {}
-    cleanDict = dict(matchingDict)
-    keysToPop = []
-    for key in cleanDict:
-        if key in originalDict:
-            if isinstance(originalDict[key], dict) and isinstance(cleanDict[key], dict):
-                data = RemoveMatchingDictData(originalDict[key], cleanDict[key])
-                cleanDict[key] = data[0]
-                changedData[key] = data[1]
-            elif isinstance(originalDict[key], list) and isinstance(matchingDict[key], list):
-                if CheckMatchingListData(originalDict[key], matchingDict[key]):
-                    keysToPop.append(key)
+def remove_matching_dict_data(original_dict: dict, matching_dict: dict) -> tuple[dict, dict]:
+    changed_data = {}
+    clean_dict = dict(matching_dict)
+    keys_to_pop = []
+    for key in clean_dict:
+        if key in original_dict:
+            if isinstance(original_dict[key], dict) and isinstance(clean_dict[key], dict):
+                data = remove_matching_dict_data(original_dict[key], clean_dict[key])
+                clean_dict[key] = data[0]
+                changed_data[key] = data[1]
+            elif isinstance(original_dict[key], list) and isinstance(matching_dict[key], list):
+                if check_matching_list_data(original_dict[key], matching_dict[key]):
+                    keys_to_pop.append(key)
                 else:
-                    changedData[key] = originalDict[key]
+                    changed_data[key] = original_dict[key]
             else:
-                if originalDict[key] == cleanDict[key]:
-                    keysToPop.append(key)
+                if original_dict[key] == clean_dict[key]:
+                    keys_to_pop.append(key)
                 else:
-                    changedData[key] = originalDict[key]
-    for keyToPop in keysToPop:
-        cleanDict.pop(keyToPop)
-    return cleanDict, changedData
+                    changed_data[key] = original_dict[key]
+    for key_to_pop in keys_to_pop:
+        clean_dict.pop(key_to_pop)
+    return clean_dict, changed_data
 
 
-def check_matching_dict_data(originalDict: dict, matchingDict: dict) -> bool:
+def check_matching_dict_data(original_dict: dict, matching_dict: dict) -> bool:
     matching = True
-    for key in matchingDict:
-        if key in originalDict:
-            if isinstance(originalDict[key], dict) and isinstance(matchingDict[key], dict):
-                matching = check_matching_dict_data(originalDict[key], matchingDict[key])
-            elif isinstance(originalDict[key], list) and isinstance(matchingDict[key], list):
-                matching = CheckMatchingListData(originalDict[key], matchingDict[key])
+    for key in matching_dict:
+        if key in original_dict:
+            if isinstance(original_dict[key], dict) and isinstance(matching_dict[key], dict):
+                matching = check_matching_dict_data(original_dict[key], matching_dict[key])
+            elif isinstance(original_dict[key], list) and isinstance(matching_dict[key], list):
+                matching = check_matching_list_data(original_dict[key], matching_dict[key])
             else:
-                matching = originalDict[key] == matchingDict[key]
+                matching = original_dict[key] == matching_dict[key]
         else:
             matching = False
         if not matching:
@@ -129,11 +129,11 @@ def check_matching_dict_data(originalDict: dict, matchingDict: dict) -> bool:
     return matching
 
 
-def CheckEmptyDictData(data: dict) -> bool:
+def check_empty_dict_data(data: dict) -> bool:
     empty = True
     for key in data:
         if isinstance(data[key], dict):
-            empty = CheckEmptyDictData(data[key])
+            empty = check_empty_dict_data(data[key])
         else:
             empty = False
         if not empty:
@@ -141,27 +141,27 @@ def CheckEmptyDictData(data: dict) -> bool:
     return empty
 
 
-def CheckMatchingListData(originalList: list, matchingList: list) -> bool:
-    matching = len(originalList) == len(matchingList)
-    for i in range(len(originalList)):
+def check_matching_list_data(original_list: list, matching_list: list) -> bool:
+    matching = len(original_list) == len(matching_list)
+    for i in range(len(original_list)):
         if not matching:
             break
-        if isinstance(originalList[i], dict) and isinstance(matchingList[i], dict):
-            matching = check_matching_dict_data(originalList[i], matchingList[i])
-        elif isinstance(originalList[i], list) and isinstance(matchingList[i], list):
-            matching = CheckMatchingListData(originalList[i], matchingList[i])
+        if isinstance(original_list[i], dict) and isinstance(matching_list[i], dict):
+            matching = check_matching_dict_data(original_list[i], matching_list[i])
+        elif isinstance(original_list[i], list) and isinstance(matching_list[i], list):
+            matching = check_matching_list_data(original_list[i], matching_list[i])
         else:
-            matching = originalList[i] == matchingList[i]
+            matching = original_list[i] == matching_list[i]
     return matching
 
 
-def RemoveKeys(data: dict, keyMap: dict, ignoreKeys: list[str] | None = None) -> None:
-    if ignoreKeys is None:
-        ignoreKeys = ["id"]
-    for key in keyMap:
-        if key in data and key not in ignoreKeys:
-            if isinstance(keyMap[key], dict):
+def remove_keys(data: dict, key_map: dict, ignore_keys: list[str] | None = None) -> None:
+    if ignore_keys is None:
+        ignore_keys = ["id"]
+    for key in key_map:
+        if key in data and key not in ignore_keys:
+            if isinstance(key_map[key], dict):
                 if isinstance(data[key], dict):
-                    RemoveKeys(data[key], keyMap[key])
+                    remove_keys(data[key], key_map[key])
             else:
                 data.pop(key)
