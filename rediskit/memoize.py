@@ -240,12 +240,12 @@ def redis_memoize[T](
                     )
                     if in_cache is not None:
                         return in_cache
-                    result = await func(*args, **kwargs)
+                    result = await func(*args, **kwargs)  # type: ignore # need to fix this
                     if result is not None:
                         dump_data(result, tenant_id, computed_memoize_key, cache_type, computed_ttl, enable_encryption, storage_type, connection)
                     return result
 
-            return async_wrapper
+            return async_wrapper  # type: ignore # need to fix this
 
         else:
 

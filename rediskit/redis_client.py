@@ -1,7 +1,7 @@
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Iterator, AsyncIterator
+from typing import Any, AsyncIterator, Callable, Iterator, Mapping
 
 import redis.asyncio as redis_async
 from redis import ConnectionPool, Redis
@@ -320,6 +320,7 @@ def list_keys(
 # implementations but operate on ``redis.asyncio`` connections and use
 # ``await`` when talking to Redis.
 
+
 async def async_dump_cache_to_redis(
     tenant_id: str | None,
     key: str,
@@ -454,7 +455,9 @@ async def async_h_set_cache_to_redis(
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
     if enable_encryption:
-        mapping = {field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
+        mapping: Mapping[str | bytes, str | bytes | int | float] = {
+            field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()
+        }
     else:
         mapping = {field: json.dumps(value) for field, value in fields.items()}
     await conn.hset(node_key, mapping=mapping)

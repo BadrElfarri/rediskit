@@ -2,39 +2,42 @@ import asyncio
 import uuid
 
 import pytest
+import pytest_asyncio
 
+from rediskit import redis_client
 from rediskit.redis_client import (
-    redis_single_connection_context,
-    get_async_redis_connection,
-    get_redis_top_node,
+    async_check_cache_matches,
+    async_delete_cache_from_redis,
+    async_dump_blob_to_redis,
     async_dump_cache_to_redis,
     async_dump_multiple_payload_to_redis,
-    async_load_cache_from_redis,
-    async_load_exact_cache_from_redis,
-    async_delete_cache_from_redis,
-    async_check_cache_matches,
-    async_set_redis_cache_expiry,
-    async_hash_set_ttl_for_key,
-    async_h_set_cache_to_redis,
+    async_get_keys,
+    async_h_del_cache_from_redis,
     async_h_get_cache_from_redis,
     async_h_scan_fields,
-    async_h_del_cache_from_redis,
-    async_get_keys,
-    async_set_ttl_for_key,
-    async_dump_blob_to_redis,
-    async_load_blob_from_redis,
+    async_h_set_cache_to_redis,
+    async_hash_set_ttl_for_key,
     async_list_keys,
+    async_load_blob_from_redis,
+    async_load_cache_from_redis,
+    async_load_exact_cache_from_redis,
+    async_set_redis_cache_expiry,
+    async_set_ttl_for_key,
+    get_async_redis_connection,
+    get_redis_top_node,
+    redis_single_connection_context,
 )
 
 TEST_TENANT_ID = "PYTEST_REDISKIT_TENANT_ASYNC"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def connection():
+    redis_client.init_async_redis_connection_pool()
     return get_async_redis_connection()
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def cleanup_redis(connection):
     prefix = get_redis_top_node(TEST_TENANT_ID, "")
     async for key in connection.scan_iter(match=f"{prefix}*"):
@@ -206,9 +209,7 @@ async def test_h_set_and_get_encrypted(connection):
     key = "cryptotest"
     fields = {"foo": [1, 2, 3], "bar": "baz"}
     await async_h_set_cache_to_redis(TEST_TENANT_ID, key, fields, connection=connection, enable_encryption=True)
-    result = await async_h_get_cache_from_redis(
-        TEST_TENANT_ID, key, list(fields.keys()), connection=connection, is_encrypted=True
-    )
+    result = await async_h_get_cache_from_redis(TEST_TENANT_ID, key, list(fields.keys()), connection=connection, is_encrypted=True)
     assert result == fields
 
 
@@ -220,4 +221,3 @@ async def test_list_keys_limit_over_10000_raises(connection):
         collected = []
         async for key in async_list_keys(TEST_TENANT_ID, "massive*", connection=connection):
             collected.append(key)
-
