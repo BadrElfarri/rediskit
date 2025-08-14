@@ -1,7 +1,7 @@
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, AsyncIterator
 
 import redis.asyncio as redis_async
 from redis import ConnectionPool, Redis
@@ -312,4 +312,297 @@ def list_keys(
     for i, key in enumerate(conn.scan_iter(match=pattern, count=count)):
         if i >= 10_000:
             raise ValueError("Redis keys exceeded 10_000 matches")
+        yield key
+
+
+# ----------------------------------------------------------------------------
+# Async versions of the redis helpers above. These mirror the synchronous
+# implementations but operate on ``redis.asyncio`` connections and use
+# ``await`` when talking to Redis.
+
+async def async_dump_cache_to_redis(
+    tenant_id: str | None,
+    key: str,
+    payload: dict | list[dict],
+    connection: redis_async.Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+    ttl: int | None = None,
+) -> None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    await conn.execute_command("JSON.SET", node_key, ".", json.dumps(payload))
+    if ttl is not None:
+        await async_set_redis_cache_expiry(tenant_id, key, expiry=ttl, connection=conn, top_node=top_node)
+
+
+async def async_dump_multiple_payload_to_redis(
+    tenant_id: str | None,
+    payloads_and_keys: list[dict[str, Any]],
+    ttl: int | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+) -> None:
+    if tenant_id is None:
+        raise Exception("Tenant or key is missing!")
+    if len(payloads_and_keys) == 0:
+        return
+
+    for payload_and_key in payloads_and_keys:
+        if "key" not in payload_and_key or "payload" not in payload_and_key:
+            raise Exception("Key or payload is missing!")
+        key = payload_and_key["key"]
+        payload = payload_and_key["payload"]
+        await async_dump_cache_to_redis(tenant_id, key, payload, top_node=top_node)
+        if ttl is not None:
+            await async_set_redis_cache_expiry(tenant_id, key, expiry=ttl, top_node=top_node)
+
+
+async def async_load_cache_from_redis(
+    tenant_id: str | None,
+    match: str,
+    count: int | None = None,
+    connection: redis_async.Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+) -> list[dict]:
+    count = count if count is not None else config.REDIS_SCAN_COUNT
+    node_match = top_node(tenant_id, match)
+    payloads: list[dict] = []
+    if config.REDIS_SKIP_CACHING:
+        return payloads
+    conn = connection if connection is not None else get_async_redis_connection()
+    async for key in conn.scan_iter(match=node_match, count=count):
+        payload = json.loads(await conn.execute_command("JSON.GET", key))
+        payloads.append(payload)
+    return payloads
+
+
+async def async_load_exact_cache_from_redis(
+    tenant_id: str | None,
+    match: str,
+    connection: redis_async.Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+) -> dict | None:
+    node_match = top_node(tenant_id, match)
+    if config.REDIS_SKIP_CACHING:
+        return None
+    conn = connection if connection is not None else get_async_redis_connection()
+    if await conn.exists(node_match):
+        payload = json.loads(await conn.execute_command("JSON.GET", node_match))
+        return payload
+    return None
+
+
+async def async_delete_cache_from_redis(
+    tenant_id: str | None,
+    match: str,
+    connection: redis_async.Redis | None = None,
+) -> None:
+    node_match = get_redis_top_node(tenant_id, match)
+    conn = connection if connection is not None else get_async_redis_connection()
+    await conn.delete(node_match)
+
+
+async def async_check_cache_matches(
+    tenant_id: str | None,
+    match: str,
+    payload_match: dict,
+    count: int | None = None,
+    connection: redis_async.Redis | None = None,
+) -> bool:
+    conn = connection if connection is not None else get_async_redis_connection()
+    cache_matches = await async_load_cache_from_redis(tenant_id, match, count=count, connection=conn)
+    clean_payload_match = json.loads(json.dumps(payload_match))
+    for cache_match in cache_matches:
+        if check_matching_dict_data(cache_match, clean_payload_match):
+            return True
+    return False
+
+
+async def async_set_redis_cache_expiry(
+    tenant_id: str | None,
+    key: str,
+    expiry: int,
+    connection: redis_async.Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+) -> None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    await conn.expire(node_key, expiry)
+
+
+async def async_hash_set_ttl_for_key(
+    tenant_id: str | None,
+    key: str,
+    fields: list[str],
+    ttl: int,
+    connection: redis_async.Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+) -> None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    await conn.hexpire(node_key, ttl, *fields)  # type: ignore[attr-defined]
+
+
+async def async_h_set_cache_to_redis(
+    tenant_id: str | None,
+    key: str | None,
+    fields: dict[str, Any],
+    top_node: Callable = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+    ttl: int | None = None,
+    enable_encryption: bool = False,
+) -> None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    if enable_encryption:
+        mapping = {field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
+    else:
+        mapping = {field: json.dumps(value) for field, value in fields.items()}
+    await conn.hset(node_key, mapping=mapping)
+    if ttl is not None:
+        await conn.hexpire(node_key, ttl, *mapping.keys())  # type: ignore[attr-defined]
+
+
+async def async_h_get_cache_from_redis(
+    tenant_id: str | None,
+    key: str | None,
+    fields: str | list[str] | None = None,
+    top_node: Callable = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+    set_ttl_on_read: int | None = None,
+    is_encrypted: bool = False,
+) -> dict[str, Any] | None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+
+    if fields is None:
+        result = await conn.hgetall(node_key)
+        data = {field: value for field, value in result.items()}
+    elif isinstance(fields, str):
+        value = await conn.hget(node_key, fields)
+        data = {fields: (value if value is not None else None)}
+    elif isinstance(fields, list):
+        values = await conn.hmget(node_key, fields)
+        data = {fields[i]: (value if value is not None else None) for i, value in enumerate(values)}
+    else:
+        raise ValueError("fields must be either None, a string, or a list of strings")
+
+    if set_ttl_on_read is not None and data:
+        await conn.hexpire(node_key, set_ttl_on_read, *data.keys())  # type: ignore[attr-defined]
+
+    if is_encrypted:
+        result = {k: json.loads(Encrypter().decrypt(v)) for k, v in data.items() if v is not None}
+    else:
+        result = {k: json.loads(v) for k, v in data.items() if v is not None}
+
+    return result
+
+
+async def async_h_scan_fields(
+    tenant_id: str | None,
+    key: str | None,
+    match: str,
+    top_node: Callable = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+) -> list[str]:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+
+    matched: list[str] = []
+    async for field, value in conn.hscan_iter(node_key, match=match):
+        matched.append(field)
+    return matched
+
+
+async def async_h_del_cache_from_redis(
+    tenant_id: str | None,
+    key: str | None,
+    fields: dict[str, Any] | list[str],
+    top_node: Callable = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+) -> None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    if isinstance(fields, dict):
+        field_names = list(fields.keys())
+    elif isinstance(fields, list):
+        field_names = fields
+    else:
+        raise ValueError("fields must be either a dictionary or a list of strings")
+    await conn.hdel(node_key, *field_names)
+
+
+async def async_get_keys(
+    tenant_id: str | None,
+    key: str | None,
+    top_node: Callable[..., str] = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+    only_last_key: bool = True,
+) -> list[str]:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    keys = await conn.keys(node_key)
+    if only_last_key:
+        keys = [k.split(":")[-1] for k in keys]
+    return keys
+
+
+async def async_set_ttl_for_key(
+    tenant_id: str | None,
+    key: str | None,
+    ttl: int,
+    connection: redis_async.Redis | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+) -> None:
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    await conn.expire(node_key, ttl)
+
+
+async def async_load_blob_from_redis(
+    tenant_id: str | None,
+    match: str | None,
+    connection: redis_async.Redis | None = None,
+    set_ttl_on_read: int | None = None,
+) -> bytes | None:
+    log.info(f"Loading cache from redis tenantId:{tenant_id}, key: {match}")
+    conn = connection if connection is not None else get_async_redis_connection()
+    node_match = get_redis_top_node(tenant_id, match)
+    encoded = await conn.get(node_match)
+    if encoded is None:
+        return None
+    if set_ttl_on_read:
+        await async_set_ttl_for_key(tenant_id, match, ttl=set_ttl_on_read)
+    return encoded
+
+
+async def async_dump_blob_to_redis(
+    tenant_id: str | None,
+    key: str | None,
+    payload: str,
+    top_node: Callable = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+    ttl: int | None = None,
+) -> None:
+    log.info(f"Dump cache tenantId:{tenant_id}, key: {key}")
+    node_key = top_node(tenant_id, key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    await conn.set(node_key, payload)
+    if ttl is not None:
+        await conn.expire(node_key, ttl)
+
+
+async def async_list_keys(
+    tenant_id: str | None,
+    math_key: str,
+    count: int = 1_000,
+    top_node: Callable = get_redis_top_node,
+    connection: redis_async.Redis | None = None,
+) -> AsyncIterator[str]:
+    pattern = top_node(tenant_id, math_key)
+    conn = connection if connection is not None else get_async_redis_connection()
+    i = 0
+    async for key in conn.scan_iter(match=pattern, count=count):
+        if i >= 10_000:
+            raise ValueError("Redis keys exceeded 10_000 matches")
+        i += 1
         yield key
