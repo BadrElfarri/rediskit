@@ -14,7 +14,7 @@ TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"
 
 @pytest_asyncio.fixture(autouse=True)
 async def CleanupRedis():
-    redis_client.init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     async_redis_conn = get_async_redis_connection()
     prefix = get_redis_top_node(TEST_TENANT_ID, "")
     keys = [k async for k in async_redis_conn.scan_iter(match=f"{prefix}*")]
@@ -26,8 +26,8 @@ async def CleanupRedis():
         await async_redis_conn.delete(key)
 
 
-def semaphore(namespace, limit=2, acquire_timeout=2, lock_ttl=3, process_unique_id=None, ttl_auto_renewal=True):
-    redis_client.init_async_redis_connection_pool()
+async def semaphore(namespace, limit=2, acquire_timeout=2, lock_ttl=3, process_unique_id=None, ttl_auto_renewal=True):
+    await redis_client.init_async_redis_connection_pool()
     conn = get_async_redis_connection()
     return AsyncSemaphore(
         redis_conn=conn,
@@ -43,7 +43,7 @@ def semaphore(namespace, limit=2, acquire_timeout=2, lock_ttl=3, process_unique_
 @pytest.mark.asyncio
 async def test_basic_acquire_and_release():
     key = f"testsem:{uuid.uuid4()}"
-    sem = semaphore(key, limit=2)
+    sem = await semaphore(key, limit=2)
     t1 = await sem.acquire_blocking()
     assert t1 is not None
     assert await sem.get_active_count() == 1
@@ -54,8 +54,8 @@ async def test_basic_acquire_and_release():
 @pytest.mark.asyncio
 async def test_block_when_full():
     key = f"testsem:{uuid.uuid4()}"
-    sem1 = semaphore(key, limit=1)
-    sem2 = semaphore(key, limit=1)
+    sem1 = await semaphore(key, limit=1)
+    sem2 = await semaphore(key, limit=1)
     await sem1.acquire_blocking()
     start = asyncio.get_event_loop().time()
     with pytest.raises(RuntimeError):
@@ -69,7 +69,7 @@ async def test_block_when_full():
 async def test_multiple_parallel():
     key = f"testsem:{uuid.uuid4()}"
     max_count = 20
-    sems = [semaphore(key, limit=max_count, lock_ttl=20) for _ in range(10)]
+    sems = [await semaphore(key, limit=max_count, lock_ttl=20) for _ in range(10)]
     results = []
     errors = []
 
@@ -90,8 +90,8 @@ async def test_multiple_parallel():
 @pytest.mark.asyncio
 async def test_semaphore_expires_on_crash():
     key = f"testsem:{uuid.uuid4()}"
-    sem1 = semaphore(key, limit=1, lock_ttl=2)
-    sem2 = semaphore(key, limit=1, lock_ttl=2)
+    sem1 = await semaphore(key, limit=1, lock_ttl=2)
+    sem2 = await semaphore(key, limit=1, lock_ttl=2)
     await sem1.acquire_blocking()
     await sem1.stop_ttl_renewal()
     del sem1
@@ -103,21 +103,21 @@ async def test_semaphore_expires_on_crash():
 @pytest.mark.asyncio
 async def test_context_manager():
     key = f"testsem:{uuid.uuid4()}"
-    async with semaphore(key, limit=1) as sem:
+    async with await semaphore(key, limit=1) as sem:
         assert await sem.get_active_count() == 1
-    sem2 = semaphore(key, limit=1)
+    sem2 = await semaphore(key, limit=1)
     assert await sem2.acquire_blocking()
     await sem2.release_lock()
 
 
 @pytest.mark.asyncio
 async def test_different_process_unique_ids():
-    redis_client.init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     process_unique_id1 = str(uuid.uuid4())
     process_unique_id2 = str(uuid.uuid4())
-    sem1 = semaphore(key, limit=2, process_unique_id=process_unique_id1)
-    sem2 = semaphore(key, limit=2, process_unique_id=process_unique_id2)
+    sem1 = await semaphore(key, limit=2, process_unique_id=process_unique_id1)
+    sem2 = await semaphore(key, limit=2, process_unique_id=process_unique_id2)
     await sem1.acquire_blocking()
     await sem2.acquire_blocking()
     holder_keys = await sem2.get_active_process_unique_ids()
@@ -129,14 +129,14 @@ async def test_different_process_unique_ids():
 @pytest.mark.asyncio
 async def test_release_without_acquire():
     key = f"testsem:{uuid.uuid4()}"
-    sem = semaphore(key)
+    sem = await semaphore(key)
     await sem.release_lock()
 
 
 @pytest.mark.asyncio
 async def test_semaphore_ttl_isolated():
     key = f"testsem:{uuid.uuid4()}"
-    sem = semaphore(key, limit=1, lock_ttl=1, ttl_auto_renewal=False)
+    sem = await semaphore(key, limit=1, lock_ttl=1, ttl_auto_renewal=False)
     await sem.acquire_blocking()
     await asyncio.sleep(1.5)
     assert await sem.acquire_blocking()
@@ -146,7 +146,7 @@ async def test_semaphore_ttl_isolated():
 @pytest.mark.asyncio
 async def test_ttl_none():
     key = f"testsem:{uuid.uuid4()}"
-    sem = semaphore(key, limit=1, lock_ttl=None)
+    sem = await semaphore(key, limit=1, lock_ttl=None)
     await sem.acquire_blocking()
     await asyncio.sleep(1.5)
     assert await sem.is_acquired_by_process()
@@ -158,34 +158,34 @@ async def test_ttl_none():
 async def test_invalid_limit():
     key = f"testsem:{uuid.uuid4()}"
     with pytest.raises(ValueError):
-        semaphore(key, limit=0)
+        await semaphore(key, limit=0)
     with pytest.raises(ValueError):
-        semaphore(key, limit=-5)
+        await semaphore(key, limit=-5)
 
 
 @pytest.mark.asyncio
 async def test_invalid_timeout():
     key = f"testsem:{uuid.uuid4()}"
     with pytest.raises(ValueError):
-        semaphore(key, acquire_timeout=0)
+        await semaphore(key, acquire_timeout=0)
     with pytest.raises(ValueError):
-        semaphore(key, acquire_timeout=-10)
+        await semaphore(key, acquire_timeout=-10)
 
 
 @pytest.mark.asyncio
 async def test_invalid_ttl():
     key = f"testsem:{uuid.uuid4()}"
     with pytest.raises(ValueError):
-        semaphore(key, lock_ttl=0)
+        await semaphore(key, lock_ttl=0)
     with pytest.raises(ValueError):
-        semaphore(key, lock_ttl=-1)
+        await semaphore(key, lock_ttl=-1)
 
 
 @pytest.mark.asyncio
 async def test_re_acquire_same_process_unique_id():
     key = f"testsem:{uuid.uuid4()}"
     process_unique_id = str(uuid.uuid4())
-    sem = semaphore(key, process_unique_id=process_unique_id)
+    sem = await semaphore(key, process_unique_id=process_unique_id)
     await sem.acquire_blocking()
     with pytest.raises(RuntimeError):
         await sem.acquire_blocking()
@@ -195,7 +195,7 @@ async def test_re_acquire_same_process_unique_id():
 @pytest.mark.asyncio
 async def test_multiple_release():
     key = f"testsem:{uuid.uuid4()}"
-    sem = semaphore(key)
+    sem = await semaphore(key)
     await sem.acquire_blocking()
     await sem.release_lock()
     await sem.release_lock()
@@ -210,7 +210,7 @@ async def test_semaphore_parallel_contention():
 
     async def contender(i):
         process_unique_id = f"process_unique_id-{i}"
-        sem = semaphore(key, limit=max_count, lock_ttl=2, process_unique_id=process_unique_id)
+        sem = await semaphore(key, limit=max_count, lock_ttl=2, process_unique_id=process_unique_id)
         try:
             await sem.acquire_blocking()
             acquired.append(process_unique_id)
@@ -230,8 +230,8 @@ async def test_ttl_per_holder_is_isolated():
     key = f"testsem:{uuid.uuid4()}"
     process_unique_id1 = str(uuid.uuid4())
     process_unique_id2 = str(uuid.uuid4())
-    sem1 = semaphore(key, limit=2, lock_ttl=1, process_unique_id=process_unique_id1, ttl_auto_renewal=False)
-    sem2 = semaphore(key, limit=2, lock_ttl=5, process_unique_id=process_unique_id2, ttl_auto_renewal=False)
+    sem1 = await semaphore(key, limit=2, lock_ttl=1, process_unique_id=process_unique_id1, ttl_auto_renewal=False)
+    sem2 = await semaphore(key, limit=2, lock_ttl=5, process_unique_id=process_unique_id2, ttl_auto_renewal=False)
     await sem1.acquire_blocking()
     await sem2.acquire_blocking()
     await asyncio.sleep(1.5)
@@ -243,8 +243,8 @@ async def test_ttl_per_holder_is_isolated():
 @pytest.mark.asyncio
 async def test_acquire_after_release():
     key = f"testsem:{uuid.uuid4()}"
-    sem1 = semaphore(key, limit=1)
-    sem2 = semaphore(key, limit=1)
+    sem1 = await semaphore(key, limit=1)
+    sem2 = await semaphore(key, limit=1)
     await sem1.acquire_blocking()
     await sem1.release_lock()
     assert await sem2.acquire_blocking()
@@ -255,14 +255,14 @@ async def test_acquire_after_release():
 async def test_acquire_with_zero_ttl():
     key = f"testsem:{uuid.uuid4()}"
     with pytest.raises(ValueError):
-        semaphore(key, limit=1, lock_ttl=0)
+        await semaphore(key, limit=1, lock_ttl=0)
 
 
 @pytest.mark.asyncio
 async def test_manual_expiry_behavior():
-    redis_client.init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
-    sem = semaphore(key, limit=1, lock_ttl=1)
+    sem = await semaphore(key, limit=1, lock_ttl=1)
     await sem.acquire_blocking()
     await get_async_redis_connection().delete(sem.hashKey)
     assert await sem.acquire_blocking()
@@ -273,7 +273,7 @@ async def test_manual_expiry_behavior():
 async def test_custom_process_unique_id():
     key = f"testsem:{uuid.uuid4()}"
     process_unique_id = "my-process-id"
-    sem = semaphore(key, process_unique_id=process_unique_id)
+    sem = await semaphore(key, process_unique_id=process_unique_id)
     assert sem.process_unique_id == process_unique_id
     await sem.acquire_blocking()
     await sem.release_lock()
@@ -283,7 +283,7 @@ async def test_custom_process_unique_id():
 async def test_semaphore_ttl_renewal():
     key = f"testsem:{uuid.uuid4()}"
     ttl = 2  # seconds
-    sem = semaphore(key, limit=1, lock_ttl=ttl)
+    sem = await semaphore(key, limit=1, lock_ttl=ttl)
     await sem.acquire_blocking()
     await asyncio.sleep(ttl + 2)
     assert await sem.is_acquired_by_process()
@@ -294,7 +294,7 @@ async def test_semaphore_ttl_renewal():
 
 @pytest.mark.asyncio
 async def test_semaphore_parallel_blocking_batches():
-    redis_client.init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     limit = 10
     total = 30
@@ -320,7 +320,7 @@ async def test_semaphore_parallel_blocking_batches():
 
 @pytest.mark.asyncio
 async def test_semaphore_large_parallel():
-    redis_client.init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     limit = 100
     total = 200

@@ -4,8 +4,9 @@ import time
 import polars as pl
 import pytest
 
+from rediskit import redis_client
 from rediskit.memoize import redis_memoize
-from rediskit.redis_client import get_redis_connection, get_redis_top_node, init_async_redis_connection_pool
+from rediskit.redis_client import get_redis_connection, get_redis_top_node
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
 
@@ -198,7 +199,7 @@ def testMissingTenantIdAndKey():
 
 @pytest.mark.asyncio
 async def testAsyncCaching():
-    init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
 
     @redis_memoize(memoize_key="testAsync", ttl=10, cache_type="zipJson")
     async def slowFunc(tenantId: str, x):
@@ -222,7 +223,7 @@ async def testAsyncCaching():
 
 @pytest.mark.asyncio
 async def testAsyncBypass():
-    init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
 
     def bypassFunc(*args, **kwargs):
         return kwargs.get("forceBypass", False)
@@ -401,7 +402,7 @@ def testReturnNoneSync():
 
 @pytest.mark.asyncio
 async def testReturnNoneAsync():
-    init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
 
     @redis_memoize(memoize_key="returnNoneAsync", ttl=10, cache_type="zipJson")
     async def func(tenantId: str, x):
@@ -481,7 +482,7 @@ def testConcurrentSyncCaching():
 
 @pytest.mark.asyncio
 async def testConcurrentAsyncCaching():
-    init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     # Test that concurrent async calls only execute the function once
     call_count = [0]
 

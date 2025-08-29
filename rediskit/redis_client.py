@@ -8,11 +8,11 @@ from redis import ConnectionPool, Redis
 
 from rediskit import config
 from rediskit.encrypter import Encrypter
+from rediskit.redis_in_eventloop import get_async_client_for_current_loop, get_async_redis_connection_in_eventloop
 from rediskit.utils import check_matching_dict_data
 
 log = logging.getLogger(__name__)
 redis_connection_pool: ConnectionPool | None = None
-async_redis_connection_pool: redis_async.ConnectionPool | None = None
 
 
 def init_redis_connection_pool() -> None:
@@ -21,12 +21,8 @@ def init_redis_connection_pool() -> None:
     redis_connection_pool = ConnectionPool(host=config.REDIS_HOST, port=config.REDIS_PORT, password=config.REDIS_PASSWORD, decode_responses=True)
 
 
-def init_async_redis_connection_pool() -> None:
-    global async_redis_connection_pool
-    log.info("Initializing async redis connection pool")
-    async_redis_connection_pool = redis_async.ConnectionPool(
-        host=config.REDIS_HOST, port=config.REDIS_PORT, password=config.REDIS_PASSWORD, decode_responses=True
-    )
+async def init_async_redis_connection_pool() -> None:
+    await get_async_redis_connection_in_eventloop()
 
 
 @asynccontextmanager
@@ -53,9 +49,7 @@ def get_redis_connection() -> Redis:
 
 
 def get_async_redis_connection() -> redis_async.Redis:
-    if async_redis_connection_pool is None:
-        raise Exception("Async Redis connection pool is not initialized!")
-    return redis_async.Redis(connection_pool=async_redis_connection_pool)
+    return get_async_client_for_current_loop()
 
 
 def get_redis_top_node(tenant_id: str | None, key: str | None, top_node: str = config.REDIS_TOP_NODE) -> str:

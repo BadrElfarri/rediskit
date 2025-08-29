@@ -33,7 +33,7 @@ TEST_TENANT_ID = "PYTEST_REDISKIT_TENANT_ASYNC"
 
 @pytest_asyncio.fixture
 async def connection():
-    redis_client.init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
     return get_async_redis_connection()
 
 

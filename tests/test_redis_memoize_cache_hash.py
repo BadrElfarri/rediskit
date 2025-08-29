@@ -4,6 +4,7 @@ import time
 import polars as pl
 import pytest
 
+from rediskit import redis_client
 from rediskit.memoize import redis_memoize
 from rediskit.redis_client import get_redis_connection, get_redis_top_node, init_async_redis_connection_pool
 
@@ -116,7 +117,7 @@ def testHashEncryption():
 
 @pytest.mark.asyncio
 async def testAsyncHashCaching():
-    init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
 
     @redis_memoize(memoize_key=lambda tenantId, x: f"testAsyncHashKey:{tenantId}:{x}", ttl=10, cache_type="zipJson", storage_type="hash")
     async def slowFunc(tenantId: str, x):
@@ -139,7 +140,7 @@ async def testAsyncHashCaching():
 
 @pytest.mark.asyncio
 async def testAsyncHashEncryption():
-    init_async_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
 
     @redis_memoize(memoize_key="encryptedAsyncHash:testField", ttl=10, cache_type="zipJson", enable_encryption=True, storage_type="hash")
     async def func(tenantId: str, x):
@@ -217,7 +218,7 @@ def testHashPickledEncryption():
 
 @pytest.mark.asyncio
 async def testAsyncHashPickledCaching():
-    init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     @redis_memoize(memoize_key="asyncPickledHash:field", ttl=10, cache_type="zipPickled", storage_type="hash")
     async def func(tenantId: str, x):
@@ -232,7 +233,7 @@ async def testAsyncHashPickledCaching():
 
 @pytest.mark.asyncio
 async def testAsyncHashPickledEncryption():
-    init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     @redis_memoize(memoize_key="asyncEncryptedPickledHash:field", ttl=10, cache_type="zipPickled", enable_encryption=True, storage_type="hash")
     async def func(tenantId: str, x):

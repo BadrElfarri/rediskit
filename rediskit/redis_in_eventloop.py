@@ -26,15 +26,11 @@ _registry_lock = threading.Lock()  # protects _registry mutations only
 
 def _make_client() -> redis_async.Redis:
     loop = asyncio.get_running_loop()
-    log.info("Creating new Redis client for event loop id=%s", id(loop))
+    log.info("Creating new Redis pool client for event loop id=%s", id(loop))
     pool = ConnectionPool(
         host=config.REDIS_HOST,
         port=config.REDIS_PORT,
         password=config.REDIS_PASSWORD,
-        # max_connections=5,
-        # health_check_interval=30,
-        # socket_timeout=5,
-        # socket_connect_timeout=3,
         retry_on_timeout=True,
         decode_responses=True,
     )
@@ -62,6 +58,16 @@ async def get_async_redis_connection_in_eventloop() -> redis_async.Redis:
             client = _make_client()
             await client.ping()
             slot.client = client
+    return slot.client
+
+
+def get_async_client_for_current_loop() -> redis_async.Redis:
+    loop = asyncio.get_running_loop()
+    slot = _get_or_create_slot_for(loop)
+
+    if slot.client is None:
+        raise Exception("Async Redis connection pool is not initialized!")
+
     return slot.client
 
 
