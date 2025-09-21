@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.13"
+version = "0.0.14"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -40,7 +40,6 @@ dev = [
     "pytest",
     "mypy",
     "pytest-asyncio",
-    "types-redis",
     "types-zstd"
 ]
 docker = [

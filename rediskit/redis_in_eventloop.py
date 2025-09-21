@@ -56,6 +56,7 @@ async def get_async_redis_connection_in_eventloop() -> redis_async.Redis:
     async with slot.lock:
         if slot.client is None:
             client = _make_client()
+            await client.ping()
             slot.client = client
     return slot.client
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import contextlib
 import asyncio
+import contextlib
+import json
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Dict, Iterable, Set
 
@@ -79,7 +79,7 @@ class ChannelSubscription(AsyncIterator[Any]):
         self._pubsub = pubsub
         self._decoder = decoder
         self._closed = False
-        self._iterator = self._listen()
+        self._iterator: AsyncIterator = self._listen()
 
     async def _ensure_closed(self) -> None:
         if self._closed:
@@ -258,7 +258,7 @@ class FanoutBroker:
         self._task = None
         self._stopping.clear()
 
-    async def subscribe(self, topic: str, *, maxsize: int = 100) -> "SubscriptionHandle":
+    async def subscribe(self, topic: str, *, maxsize: int = 300) -> "SubscriptionHandle":
         """Register a local subscriber queue for ``topic``."""
 
         if self._task is None or self._task.done():
@@ -301,11 +301,7 @@ class FanoutBroker:
                 raw_data = message.get("data")
 
                 try:
-                    data = (
-                        self._decoder(raw_data)
-                        if not isinstance(raw_data, Exception)
-                        else raw_data
-                    )
+                    data = self._decoder(raw_data) if not isinstance(raw_data, Exception) else raw_data
                 except Exception:
                     data = raw_data
 
@@ -369,5 +365,3 @@ class SubscriptionHandle(AsyncIterator[Any]):
             return
         self._closed = True
         await self._broker._unsubscribe_queue(self.topic, self.queue)
-
-

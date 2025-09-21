@@ -190,7 +190,7 @@ def h_get_cache_from_redis(
     if fields is None:
         # Return all fields in the hash
         result = connection.hgetall(node_key)
-        data = {field: value for field, value in result.items()}
+        data = {field: value for field, value in result.items()} if isinstance(result, dict) else {}
     elif isinstance(fields, str):
         # Return a single field's value
         value = connection.hget(node_key, fields)
