@@ -12,6 +12,15 @@ from rediskit.redis_in_eventloop import get_async_redis_connection_in_eventloop
 from rediskit.redisLock import get_async_redis_mutex_lock, get_redis_mutex_lock
 from rediskit.retry_decorator import RetryPolicy, retry_async
 from rediskit.semaphore import Semaphore
+from rediskit.pubsub import (
+    ChannelSubscription,
+    FanoutBroker,
+    SubscriptionHandle,
+    apublish,
+    iter_channel,
+    publish,
+    subscribe_channel,
+)
 
 __all__ = [
     "redis_memoize",
@@ -27,4 +36,11 @@ __all__ = [
     "AsyncSemaphore",
     "RetryPolicy",
     "retry_async",
+    "publish",
+    "apublish",
+    "iter_channel",
+    "subscribe_channel",
+    "ChannelSubscription",
+    "FanoutBroker",
+    "SubscriptionHandle",
 ]
