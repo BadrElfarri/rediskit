@@ -363,3 +363,129 @@ async def test_subscription_handle_iter_auto_unsubscribes_and_stays_silent():
         await asyncio.wait_for(anext(handle), timeout=0.3)
 
     await broker.stop()
+
+
+# ------------------- 10_000 subscribers -------------------
+CHANNEL = "test:fanout:stress"
+RECEIVE_TIMEOUT = 5.0  # seconds
+
+
+async def _subscribe_many(broker: FanoutBroker, n: int):
+    # Use maxsize=1 to keep memory footprint minimal (we only need 1 message)
+    handles = await asyncio.gather(*[broker.subscribe(CHANNEL, maxsize=1) for _ in range(n)])
+    return handles
+
+
+async def _recv_one(handle):
+    # Each handle should receive exactly one message after we publish
+    return await asyncio.wait_for(handle.__anext__(), timeout=RECEIVE_TIMEOUT)
+
+
+@pytest.mark.asyncio
+async def test_stress_test_10_000_subscribers_and_1_message_per_subscriber():
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    N = 10_000
+    broker = FanoutBroker()
+    await broker.start(channels=[CHANNEL])
+
+    # Create 10,000 subscribers (maxsize=1 keeps memory small)
+    handles = await _subscribe_many(broker, N)
+
+    # Single publish all should see
+    payload = 1  # keep the message tiny
+    await apublish(CHANNEL, payload)
+
+    # Drain one message from each subscriber
+    received = await asyncio.gather(*[_recv_one(h) for h in handles])
+
+    assert len(received) == N
+    assert all(r == payload for r in received)
+
+    # Cleanup
+    await asyncio.gather(*[h.unsubscribe() for h in handles])
+
+
+# ------------------- Test patterns -------------------
+
+
+async def _next(item, timeout=1.0):
+    return await asyncio.wait_for(item.__anext__(), timeout)
+
+
+@pytest.mark.asyncio
+async def test_exact_and_pattern_subscribers_receive_expected_messages():
+    """
+    Given a broker PSUBSCRIBE'd to 'SomeRouteName:*':
+      - sub1 (exact 'SomeRouteName:SomeName') gets only message 1
+      - sub2 (exact 'SomeRouteName:SomeName:SomethingElse') gets only message 2
+      - subAll (pattern 'SomeRouteName:*') gets both
+    """
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    broker = FanoutBroker(patterns=["SomeRouteName:*"])
+    await broker.start()
+
+    try:
+        sub1 = await broker.subscribe("SomeRouteName:SomeName")
+        sub2 = await broker.subscribe("SomeRouteName:SomeName:SomethingElse")
+        subAll = await broker.subscribe("SomeRouteName:*")
+
+        # Publish two different channel messages
+        await apublish("SomeRouteName:SomeName", {"msg": 1})
+        await apublish("SomeRouteName:SomeName:SomethingElse", {"msg": 2})
+
+        # sub1: should only see msg 1
+        m1 = await _next(sub1)
+        assert m1 == {"msg": 1}
+        # Ensure sub1 does not receive msg 2 quickly
+        with pytest.raises(asyncio.TimeoutError):
+            await _next(sub1, timeout=0.2)
+
+        # sub2: should only see msg 2
+        m2 = await _next(sub2)
+        assert m2 == {"msg": 2}
+        with pytest.raises(asyncio.TimeoutError):
+            await _next(sub2, timeout=0.2)
+
+        # subAll (pattern): should see both, in order of publish
+        p1 = await _next(subAll)
+        p2 = await _next(subAll)
+        assert {tuple(sorted(p.items())) for p in (p1, p2)} == {
+            tuple(sorted({"msg": 1}.items())),
+            tuple(sorted({"msg": 2}.items())),
+        }
+
+    finally:
+        await broker.stop()
+
+
+@pytest.mark.asyncio
+async def test_wildcard_in_channels_is_treated_as_pattern():
+    """
+    start(channels=['SomeRouteName:*']) should internally PSUBSCRIBE,
+    so pattern subscriber and exact subscribers both get messages.
+    (Relies on the start() patch that auto-moves wildcards to patterns.)
+    """
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    broker = FanoutBroker()
+    # Pass wildcard in channels on purpose; start() should convert it to PSUBSCRIBE
+    await broker.start(channels=["SomeRouteName:*"])
+
+    try:
+        sub_exact = await broker.subscribe("SomeRouteName:SomeName")
+        sub_pattern = await broker.subscribe("SomeRouteName:*")
+
+        await apublish("SomeRouteName:SomeName", {"ok": True})
+
+        e = await _next(sub_exact)
+        p = await _next(sub_pattern)
+        assert e == {"ok": True}
+        assert p == {"ok": True}
+
+    finally:
+        await broker.stop()

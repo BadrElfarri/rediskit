@@ -200,14 +200,19 @@ class FanoutBroker:
         self._ps: redis_async.client.PubSub | None = None
         self._stopping = asyncio.Event()
 
+    @staticmethod
+    def _is_pattern(topic: str) -> bool:
+        # Redis glob-style wildcards
+        return any(ch in topic for ch in ("*", "?", "["))
+
     async def start(
         self,
         *,
         channels: Iterable[str] | None = None,
+        patterns: Iterable[str] | None = None,
         health_check_interval: float | None = None,
     ) -> None:
         """Start the broker background task if it isn't already running."""
-
         if self._task and not self._task.done():
             return
 
@@ -217,11 +222,25 @@ class FanoutBroker:
             pubsub_kwargs["health_check_interval"] = health_check_interval
         self._ps = self._client.pubsub(**pubsub_kwargs)
 
+        # Merge init-time patterns with call-time patterns
+        merged_patterns: list[str] = list(self._patterns)
+        if patterns:
+            merged_patterns.extend(patterns)
+
+        # Anything with wildcard in "channels" must actually be PSUBSCRIBE.
+        chan_list: list[str] = []
+        if channels:
+            for c in channels:
+                if self._is_pattern(c):
+                    merged_patterns.append(c)
+                else:
+                    chan_list.append(c)
+
         try:
-            if channels:
-                await self._ps.subscribe(*channels)
-            if self._patterns:
-                await self._ps.psubscribe(*self._patterns)
+            if chan_list:
+                await self._ps.subscribe(*chan_list)
+            if merged_patterns:
+                await self._ps.psubscribe(*merged_patterns)
         except Exception:
             await self._ps.aclose()
             self._ps = None
@@ -258,7 +277,7 @@ class FanoutBroker:
         self._task = None
         self._stopping.clear()
 
-    async def subscribe(self, topic: str, *, maxsize: int = 300) -> "SubscriptionHandle":
+    async def subscribe(self, topic: str, *, maxsize: int = 1_000) -> "SubscriptionHandle":
         """Register a local subscriber queue for ``topic``."""
 
         if self._task is None or self._task.done():
