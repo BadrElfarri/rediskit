@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.15"
+version = "0.0.16"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -32,6 +32,7 @@ dependencies = [
     "pynacl",
     "dockerbuildsystem",
     "httpx",
+    "fastapi>=0.118.0",
 ]
 
 [project.optional-dependencies]

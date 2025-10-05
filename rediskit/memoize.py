@@ -12,7 +12,7 @@ from redis import Redis
 from rediskit import config, redis_client
 from rediskit.encrypter import Encrypter
 from rediskit.redis_client import h_get_cache_from_redis, h_set_cache_to_redis
-from rediskit.redisLock import get_async_redis_mutex_lock, get_redis_mutex_lock
+from rediskit.redis_lock import get_async_redis_mutex_lock, get_redis_mutex_lock
 
 log = logging.getLogger(__name__)
 cache_type_options = Literal["zipPickled", "zipJson"]
