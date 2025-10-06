@@ -1,7 +1,6 @@
 # tests/test_retry_async.py
 import asyncio
 import inspect
-from typing import List
 
 import httpx
 import pytest
@@ -15,7 +14,7 @@ def sleep_calls(monkeypatch):
     Replace asyncio.sleep with a fake that records requested sleep times (without actually sleeping).
     Returns a list you can assert on.
     """
-    calls: List[float] = []
+    calls = []
 
     async def fake_sleep(s: float):
         calls.append(s)
@@ -67,7 +66,7 @@ def failing_then_success(n_fail: int, exc: Exception):
             raise exc
         return "OK"
 
-    fn._state = state  # attach for test introspection (ok in tests)
+    fn._state = state  # type: ignore # attach for test introspection (ok in tests)
     return fn
 
 

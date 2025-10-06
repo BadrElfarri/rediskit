@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.16"
+version = "0.0.17"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -23,7 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "pydantic",
+    "pydantic[email]",
     "cryptography",
     "redis",
     "polars",
@@ -33,9 +33,10 @@ dependencies = [
     "dockerbuildsystem",
     "httpx",
     "fastapi>=0.118.0",
+    "uuid-utils>=0.11.1",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "ruff",
     "pytest",
