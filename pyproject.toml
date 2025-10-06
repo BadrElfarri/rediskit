@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.17"
+version = "0.0.18"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -34,6 +34,7 @@ dependencies = [
     "httpx",
     "fastapi>=0.118.0",
     "uuid-utils>=0.11.1",
+    "strawberry-graphql[debug-server,fastapi]>=0.282.0",
 ]
 
 [dependency-groups]
@@ -101,3 +102,7 @@ ignore = ["E501"]
 [tool.mypy]
 exclude = "build/"
 ignore_missing_imports = true
+plugins = [
+    "pydantic.mypy",
+    "strawberry.ext.mypy_plugin",
+]
