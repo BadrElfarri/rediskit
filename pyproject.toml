@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.18"
+version = "0.0.19"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -23,7 +23,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "pydantic[email]",
     "cryptography",
     "redis",
     "polars",
@@ -32,9 +31,6 @@ dependencies = [
     "pynacl",
     "dockerbuildsystem",
     "httpx",
-    "fastapi>=0.118.0",
-    "uuid-utils>=0.11.1",
-    "strawberry-graphql[debug-server,fastapi]>=0.282.0",
 ]
 
 [dependency-groups]
@@ -102,7 +98,4 @@ ignore = ["E501"]
 [tool.mypy]
 exclude = "build/"
 ignore_missing_imports = true
-plugins = [
-    "pydantic.mypy",
-    "strawberry.ext.mypy_plugin",
-]
+plugins = []

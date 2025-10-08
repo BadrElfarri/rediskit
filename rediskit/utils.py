@@ -5,8 +5,6 @@ import json
 import uuid
 from typing import Any
 
-from uuid_utils import uuid7
-
 
 def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
     if not keys_base64:
@@ -167,8 +165,3 @@ def remove_keys(data: dict, key_map: dict, ignore_keys: list[str] | None = None)
                     remove_keys(data[key], key_map[key])
             else:
                 data.pop(key)
-
-
-def uuid_7() -> uuid.UUID:
-    # Note: Not part of standard python will be added at python 3.14. Using this for now as primary key
-    return uuid.UUID(str(uuid7()))
