@@ -226,7 +226,7 @@ def redis_memoize[T](
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs) -> T:
                 computed_memoize_key, computed_ttl, tenant_id, lock_name, by_pass_cached_data = get_params(func, *args, **kwargs)
-                async with await get_async_redis_mutex_lock(lock_name, expire=60):
+                async with get_async_redis_mutex_lock(lock_name, expire=60):
                     in_cache = maybe_data_in_cache(
                         tenant_id,
                         computed_memoize_key,
