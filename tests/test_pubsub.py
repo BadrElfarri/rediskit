@@ -1,8 +1,10 @@
 import asyncio
+import contextlib
 import json
 import uuid
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from rediskit import redis_client
 from rediskit.pubsub import (
@@ -489,3 +491,166 @@ async def test_wildcard_in_channels_is_treated_as_pattern():
 
     finally:
         await broker.stop()
+
+
+@pytest.mark.asyncio
+async def test_fanout_broker_auto_restart_on_subscribe_after_task_dies(monkeypatch):
+    """
+    If the background task dies, subscribe() should auto-restart the broker using last start kwargs.
+    """
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    channel = f"rediskit:test:auto-restart:{uuid.uuid4()}"
+    broker = FanoutBroker()
+    await broker.start(channels=[channel])
+
+    # Simulate a crash: cancel the internal task without calling broker.stop()
+    assert broker._task is not None
+    broker._task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await broker._task
+    # Now task is done
+    assert broker._task is not None and broker._task.done()
+
+    # subscribe() should auto-restart using the remembered start kwargs
+    handle = await broker.subscribe(channel)
+
+    # Roundtrip still works
+    await apublish(channel, {"ok": 1})
+    got = await asyncio.wait_for(anext(handle), timeout=5)
+    assert got == {"ok": 1}
+
+    await handle.unsubscribe()
+    await broker.stop()
+
+
+@pytest.mark.asyncio
+async def test_fanout_broker_reconnects_and_resubscribes_after_connection_error(monkeypatch):
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    base = f"rediskit:test:reconnect:{uuid.uuid4()}"
+    channel = f"{base}:news"
+    pattern = f"{base}:*"
+
+    broker = FanoutBroker(patterns=[pattern])
+    await broker.start(channels=[channel])
+
+    exact = await broker.subscribe(channel)
+    pat = await broker.subscribe(pattern)
+
+    ps = broker._ps
+    assert ps is not None
+
+    # Make get_message() raise once, then behave
+    raised = {"done": False}
+
+    async def flaky_get_message(*args, **kwargs):
+        if not raised["done"]:
+            raised["done"] = True
+            raise RedisConnectionError("simulated drop")
+        await asyncio.sleep(0)  # yield
+        return None
+
+    monkeypatch.setattr(ps, "get_message", flaky_get_message)
+
+    # Track reconnect via an Event (avoid timing races)
+    reconnected = asyncio.Event()
+    orig_reconnect = broker._reconnect
+
+    async def tracked_reconnect():
+        try:
+            await orig_reconnect()
+        finally:
+            reconnected.set()
+
+    monkeypatch.setattr(broker, "_reconnect", tracked_reconnect)
+
+    # Wait until the broker actually attempted a reconnect
+    await asyncio.wait_for(reconnected.wait(), timeout=3.0)
+
+    # After reconnect, normal delivery should work for both subs
+    payload = {"hello": "world"}
+    await apublish(channel, payload)
+    g1 = await asyncio.wait_for(anext(exact), timeout=5)
+    g2 = await asyncio.wait_for(anext(pat), timeout=5)
+    assert g1 == payload
+    assert g2 == payload
+
+    await exact.unsubscribe()
+    await pat.unsubscribe()
+    await broker.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_idempotent_and_remembers_subscriptions():
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    base = f"rediskit:test:start-idem:{uuid.uuid4()}"
+    channel = f"{base}:news"
+    pattern = f"{base}:*"
+
+    broker = FanoutBroker(patterns=[pattern])
+    await broker.start(channels=[channel])
+    # idempotent start
+    await broker.start(channels=[channel], patterns=[pattern])
+
+    assert broker._chan_list == [channel]
+    assert pattern in broker._merged_patterns
+
+    h1 = await broker.subscribe(channel)
+    h2 = await broker.subscribe(pattern)
+
+    await apublish(channel, {"ok": True})
+    r1 = await asyncio.wait_for(anext(h1), timeout=5)
+    r2 = await asyncio.wait_for(anext(h2), timeout=5)
+    assert r1 == {"ok": True}
+    assert r2 == {"ok": True}
+
+    await h1.unsubscribe()
+    await h2.unsubscribe()
+    await broker.stop()
+
+
+@pytest.mark.asyncio
+async def test_exception_payload_is_passed_through_undecoded(monkeypatch):
+    """
+    If Redis delivers an Exception as message data, broker should pass it through (no decoding).
+    """
+    redis_client.init_redis_connection_pool()
+    await redis_client.init_async_redis_connection_pool()
+
+    channel = f"rediskit:test:exception-payload:{uuid.uuid4()}"
+    broker = FanoutBroker()
+    await broker.start(channels=[channel])
+
+    handle = await broker.subscribe(channel)
+
+    # Monkeypatch the pubsub to simulate a delivered Exception payload
+    ps = broker._ps
+    assert ps is not None
+
+    delivered = {"done": False}
+
+    async def fake_get_message(*args, **kwargs):
+        if not delivered["done"]:
+            delivered["done"] = True
+            return {
+                "type": "message",
+                "channel": channel,
+                "pattern": None,
+                "data": RuntimeError("boom!"),
+            }
+        await asyncio.sleep(0)
+        return None
+
+    monkeypatch.setattr(ps, "get_message", fake_get_message)
+
+    msg = await asyncio.wait_for(anext(handle), timeout=5)
+    assert isinstance(msg, RuntimeError)
+    assert str(msg) == "boom!"
+
+    await handle.unsubscribe()
+    await broker.stop()

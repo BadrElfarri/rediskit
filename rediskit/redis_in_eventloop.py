@@ -33,6 +33,11 @@ def _make_client() -> redis_async.Redis:
         password=config.REDIS_PASSWORD,
         retry_on_timeout=True,
         decode_responses=True,
+        socket_timeout=10,
+        socket_connect_timeout=5,
+        socket_keepalive=True,
+        health_check_interval=30,
+        max_connections=10,
     )
     return redis_async.Redis(connection_pool=pool, client_name="rediskit")
 
@@ -80,7 +85,8 @@ async def close_loop_redis():
     slot = _registry.get(loop)
     if slot and slot.client:
         try:
-            await slot.client.close()
+            await slot.client.aclose()
             await slot.client.connection_pool.disconnect(inuse_connections=True)
         finally:
             slot.client = None
+            log.info("Closed Redis connection for loop id=%s", id(loop))

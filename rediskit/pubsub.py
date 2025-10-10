@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import random
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Dict, Iterable, Set
 
 import redis.asyncio as redis_async
 from redis import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from .redis_client import get_redis_connection
 from .redis_in_eventloop import get_async_client_for_current_loop
@@ -170,24 +173,13 @@ async def iter_channel(
 
 
 class FanoutBroker:
-    """Single Redis subscription fan-out for local asyncio consumers.
-
-    ``FanoutBroker`` keeps a single Redis pub/sub connection running in the
-    background. Incoming messages are decoded and pushed into per-topic
-    ``asyncio.Queue`` instances for any interested consumers.  Each consumer
-    owns a :class:`SubscriptionHandle` returned from :meth:`subscribe` which
-    exposes both an async iterator and an explicit :meth:`unsubscribe` method.
-
-    The broker can be configured to subscribe to specific channels and/or
-    patterns on startup.  Additional Redis subscription management (such as
-    dynamic channel subscriptions) should be handled by the application itself.
-    """
+    """Single Redis subscription fan-out for local asyncio consumers."""
 
     def __init__(
         self,
         *,
         patterns: Iterable[str] | None = None,
-        decoder: Serializer | None = None,
+        decoder: callable | None = None,
         connection: redis_async.Redis | None = None,
     ) -> None:
         self._patterns = list(patterns or [])
@@ -199,6 +191,11 @@ class FanoutBroker:
         self._client: redis_async.Redis | None = None
         self._ps: redis_async.client.PubSub | None = None
         self._stopping = asyncio.Event()
+
+        # NEW: remember last subscriptions & start args for reconnects
+        self._chan_list: list[str] = []
+        self._merged_patterns: list[str] = []
+        self._last_start_kwargs: dict[str, Any] = {}
 
     @staticmethod
     def _is_pattern(topic: str) -> bool:
@@ -212,22 +209,52 @@ class FanoutBroker:
         patterns: Iterable[str] | None = None,
         health_check_interval: float | None = None,
     ) -> None:
-        """Start the broker background task if it isn't already running."""
+        """Start (or restart) the broker background task."""
+        # remember for auto-restart
+        self._last_start_kwargs = {
+            "channels": list(channels or []),
+            "patterns": list(patterns or []),
+            "health_check_interval": health_check_interval,
+        }
+
+        # already running
         if self._task and not self._task.done():
             return
 
         self._client = self._external_connection or get_async_client_for_current_loop()
+        await self._open_pubsub(
+            channels=self._last_start_kwargs["channels"],
+            patterns=self._last_start_kwargs["patterns"],
+            health_check_interval=health_check_interval,
+        )
+
+        self._stopping.clear()
+        self._task = asyncio.create_task(self._run())
+
+    async def _open_pubsub(
+        self,
+        *,
+        channels: Iterable[str],
+        patterns: Iterable[str],
+        health_check_interval: float | None,
+    ) -> None:
+        """(Re)create pubsub and subscribe to channels/patterns."""
+        if self._ps is not None:
+            with contextlib.suppress(Exception):
+                await self._ps.aclose()
+
         pubsub_kwargs: dict[str, Any] = {"ignore_subscribe_messages": True}
         if health_check_interval is not None:
             pubsub_kwargs["health_check_interval"] = health_check_interval
+
         self._ps = self._client.pubsub(**pubsub_kwargs)
 
-        # Merge init-time patterns with call-time patterns
+        # merge init-time patterns with provided patterns
         merged_patterns: list[str] = list(self._patterns)
         if patterns:
             merged_patterns.extend(patterns)
 
-        # Anything with wildcard in "channels" must actually be PSUBSCRIBE.
+        # split channels vs patterns
         chan_list: list[str] = []
         if channels:
             for c in channels:
@@ -236,25 +263,45 @@ class FanoutBroker:
                 else:
                     chan_list.append(c)
 
+        # remember for reconnect
+        self._chan_list = chan_list
+        self._merged_patterns = merged_patterns
+
         try:
-            if chan_list:
-                await self._ps.subscribe(*chan_list)
-            if merged_patterns:
-                await self._ps.psubscribe(*merged_patterns)
+            if self._chan_list:
+                await self._ps.subscribe(*self._chan_list)
+            if self._merged_patterns:
+                await self._ps.psubscribe(*self._merged_patterns)
         except Exception:
             await self._ps.aclose()
             self._ps = None
             if not self._external_connection and self._client is not None:
-                await self._client.aclose()
+                with contextlib.suppress(Exception):
+                    await self._client.aclose()
             self._client = None
             raise
 
-        self._stopping.clear()
-        self._task = asyncio.create_task(self._run())
+    async def _reconnect(self) -> None:
+        """Tear down and re-open client + pubsub; re-subscribe."""
+        if self._ps is not None:
+            with contextlib.suppress(Exception):
+                await self._ps.aclose()
+        self._ps = None
+
+        if self._client is not None and not self._external_connection:
+            with contextlib.suppress(Exception):
+                await self._client.aclose()
+        self._client = None
+
+        self._client = self._external_connection or get_async_client_for_current_loop()
+        await self._open_pubsub(
+            channels=self._chan_list,
+            patterns=self._merged_patterns,
+            health_check_interval=self._last_start_kwargs.get("health_check_interval"),
+        )
 
     async def stop(self) -> None:
         """Stop the broker task and close Redis resources."""
-
         task = self._task
         if not task:
             return
@@ -279,9 +326,11 @@ class FanoutBroker:
 
     async def subscribe(self, topic: str, *, maxsize: int = 1_000) -> "SubscriptionHandle":
         """Register a local subscriber queue for ``topic``."""
-
+        # Auto-restart if previously started but task died
         if self._task is None or self._task.done():
-            raise RuntimeError("FanoutBroker.start() must be awaited before subscribing")
+            if not self._last_start_kwargs:
+                raise RuntimeError("FanoutBroker.start() must be awaited before subscribing")
+            await self.start(**self._last_start_kwargs)
 
         queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=maxsize)
         async with self._lock:
@@ -300,12 +349,30 @@ class FanoutBroker:
     async def _run(self) -> None:
         assert self._ps is not None
         pubsub = self._ps
+
+        # exponential backoff for reconnects
+        backoff = 0.5
+        max_backoff = 15.0
+
         try:
             while not self._stopping.is_set():
                 try:
                     message = await pubsub.get_message(timeout=1.0)
+                    # successful call → reset backoff
+                    backoff = 0.5
                 except asyncio.CancelledError:
                     raise
+                except (RedisConnectionError, RedisTimeoutError, OSError) as _e:
+                    # connection dropped; try to reconnect
+                    delay = backoff + random.uniform(0, backoff / 2)
+                    try:
+                        await asyncio.sleep(delay)
+                        await self._reconnect()
+                        pubsub = self._ps  # refresh handle
+                        continue
+                    except Exception:
+                        backoff = min(max_backoff, backoff * 2)
+                        continue
 
                 if message is None:
                     await asyncio.sleep(0)
@@ -346,7 +413,6 @@ class FanoutBroker:
         async with self._lock:
             queues = [queue for subscribers in self._subs.values() for queue in subscribers]
             self._subs.clear()
-
         for queue in queues:
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(_QUEUE_STOP)

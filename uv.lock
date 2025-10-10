@@ -476,7 +476,7 @@ wheels = [
 
 [[package]]
 name = "rediskit"
-version = "0.0.18"
+version = "0.0.21"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
