@@ -1,6 +1,7 @@
 import pytest
 
-from rediskit.redis_client import get_redis_connection, get_redis_top_node, h_del_cache_from_redis, h_get_cache_from_redis, h_set_cache_to_redis, list_keys
+from rediskit.redis import get_redis_top_node
+from rediskit.redis.client import get_redis_connection, h_del_cache_from_redis, h_get_cache_from_redis, h_set_cache_to_redis, list_keys
 
 TEST_TENANT_ID = "TEST_HASH_TENANT_REDIS"
 

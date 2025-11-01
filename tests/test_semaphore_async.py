@@ -5,16 +5,17 @@ import uuid
 import pytest
 import pytest_asyncio
 
-from rediskit import redis_client
 from rediskit.async_semaphore import AsyncSemaphore
-from rediskit.redis_client import get_async_redis_connection, get_redis_top_node
+from rediskit.redis import get_redis_top_node
+from rediskit.redis.a_client import get_async_redis_connection
+from rediskit.redis.a_client.connection import init_async_redis_connection_pool
 
 TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def CleanupRedis():
-    await redis_client.init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
     async_redis_conn = get_async_redis_connection()
     prefix = get_redis_top_node(TEST_TENANT_ID, "")
     keys = [k async for k in async_redis_conn.scan_iter(match=f"{prefix}*")]
@@ -27,7 +28,7 @@ async def CleanupRedis():
 
 
 async def semaphore(namespace, limit=2, acquire_timeout=2, lock_ttl=3, process_unique_id=None, ttl_auto_renewal=True):
-    await redis_client.init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
     conn = get_async_redis_connection()
     return AsyncSemaphore(
         redis_conn=conn,
@@ -112,7 +113,7 @@ async def test_context_manager():
 
 @pytest.mark.asyncio
 async def test_different_process_unique_ids():
-    await redis_client.init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     process_unique_id1 = str(uuid.uuid4())
     process_unique_id2 = str(uuid.uuid4())
@@ -260,7 +261,7 @@ async def test_acquire_with_zero_ttl():
 
 @pytest.mark.asyncio
 async def test_manual_expiry_behavior():
-    await redis_client.init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     sem = await semaphore(key, limit=1, lock_ttl=1)
     await sem.acquire_blocking()
@@ -294,7 +295,7 @@ async def test_semaphore_ttl_renewal():
 
 @pytest.mark.asyncio
 async def test_semaphore_parallel_blocking_batches():
-    await redis_client.init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     limit = 10
     total = 30
@@ -320,7 +321,7 @@ async def test_semaphore_parallel_blocking_batches():
 
 @pytest.mark.asyncio
 async def test_semaphore_large_parallel():
-    await redis_client.init_async_redis_connection_pool()
+    await init_async_redis_connection_pool()
     key = f"testsem:{uuid.uuid4()}"
     limit = 100
     total = 200

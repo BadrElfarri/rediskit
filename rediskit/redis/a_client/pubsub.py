@@ -4,69 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import random
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Dict, Iterable, Set
 
 import redis.asyncio as redis_async
-from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from .redis_client import get_redis_connection
-from .redis_in_eventloop import get_async_client_for_current_loop
+from rediskit.redis.a_client.redis_in_eventloop import get_async_client_for_current_loop
+from rediskit.redis.encoder import _default_decoder, _default_encoder
 
 Serializer = Callable[[Any], Any]
 
 _QUEUE_STOP = object()
 
 
-def _default_encoder(message: Any) -> Any:
-    """Encode a message into a type publishable by Redis."""
-
-    if isinstance(message, (bytes, bytearray)):
-        return bytes(message)
-    if isinstance(message, str):
-        return message
-    return json.dumps(message)
-
-
-def _default_decoder(payload: Any) -> Any:
-    """Decode a Redis pub/sub payload back into Python objects."""
-
-    if isinstance(payload, (bytes, bytearray)):
-        try:
-            payload = payload.decode("utf-8")
-        except UnicodeDecodeError:
-            return bytes(payload)
-
-    if isinstance(payload, str):
-        try:
-            return json.loads(payload)
-        except json.JSONDecodeError:
-            return payload
-
-    return payload
-
-
-def publish(channel: str, message: Any, *, encoder: Serializer | None = None, connection: Redis | None = None) -> int:
-    """Synchronously publish ``message`` to ``channel`` using the shared Redis pool."""
-
-    encoder = encoder or _default_encoder
-    connection = connection or get_redis_connection()
-    encoded = encoder(message)
-    return connection.publish(channel, encoded)
-
-
-async def apublish(
+async def publish(
     channel: str,
     message: Any,
     *,
     encoder: Serializer | None = None,
     connection: redis_async.Redis | None = None,
 ) -> int:
-    """Asynchronously publish ``message`` to ``channel`` using the event-loop Redis client."""
+    """Asynchronously publish ``message`` to ``channel`` using the event-loop Redis redis."""
 
     encoder = encoder or _default_encoder
     connection = connection or get_async_client_for_current_loop()
@@ -282,7 +243,7 @@ class FanoutBroker:
             raise
 
     async def _reconnect(self) -> None:
-        """Tear down and re-open client + pubsub; re-subscribe."""
+        """Tear down and re-open redis + pubsub; re-subscribe."""
         if self._ps is not None:
             with contextlib.suppress(Exception):
                 await self._ps.aclose()

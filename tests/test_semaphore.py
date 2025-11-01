@@ -4,7 +4,8 @@ import uuid
 
 import pytest
 
-from rediskit.redis_client import get_redis_connection, get_redis_top_node
+from rediskit.redis import get_redis_top_node
+from rediskit.redis.client import get_redis_connection
 from rediskit.semaphore import Semaphore
 
 TEST_TENANT_ID = "TEST_SEMAPHORE_TENANT_REDIS"

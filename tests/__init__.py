@@ -1,3 +1,3 @@
-from rediskit import redis_client
+from rediskit.redis.client.connection import init_redis_connection_pool
 
-redis_client.init_redis_connection_pool()
+init_redis_connection_pool()

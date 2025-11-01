@@ -2,7 +2,8 @@ import time
 
 import pytest
 
-from rediskit.redis_client import (
+from rediskit.redis import get_redis_top_node
+from rediskit.redis.client import (
     check_cache_matches,
     delete_cache_from_redis,
     dump_blob_to_redis,
@@ -10,7 +11,6 @@ from rediskit.redis_client import (
     dump_multiple_payload_to_redis,
     get_keys,
     get_redis_connection,
-    get_redis_top_node,
     h_del_cache_from_redis,
     h_get_cache_from_redis,
     h_scan_fields,
@@ -20,6 +20,7 @@ from rediskit.redis_client import (
     load_blob_from_redis,
     load_cache_from_redis,
     load_exact_cache_from_redis,
+    readiness_ping,
     set_redis_cache_expiry,
     set_ttl_for_key,
 )
@@ -215,3 +216,9 @@ def test_list_keys_yields_all(connection):
         h_set_cache_to_redis(TEST_TENANT_ID, f"key{i}", {"val": i}, connection=connection)
     result = list(list_keys(TEST_TENANT_ID, "*", connection=connection))
     assert len(result) >= 3
+
+
+def test_sync_readiness_ping():
+    conn = get_redis_connection()
+    assert readiness_ping(conn) is True
+    assert readiness_ping() is True

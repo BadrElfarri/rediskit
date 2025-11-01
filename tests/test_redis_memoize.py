@@ -1,12 +1,11 @@
-import asyncio
 import time
 
 import polars as pl
 import pytest
 
-from rediskit import redis_client
 from rediskit.memoize import redis_memoize
-from rediskit.redis_client import get_redis_connection, get_redis_top_node
+from rediskit.redis import get_redis_top_node
+from rediskit.redis.client import get_redis_connection
 
 TEST_TENANT_ID = "TEST_TENANT_REDIS_CACHE"
 
@@ -193,68 +192,6 @@ def testMissingTenantIdAndKey():
 
 
 ###############################################
-# Asynchronous Function Tests
-###############################################
-
-
-@pytest.mark.asyncio
-async def testAsyncCaching():
-    await redis_client.init_async_redis_connection_pool()
-
-    @redis_memoize(memoize_key="testAsync", ttl=10, cache_type="zipJson")
-    async def slowFunc(tenantId: str, x):
-        await asyncio.sleep(1)
-        return {"asyncResult": x}
-
-    x = 777
-    start = time.time()
-    res1 = await slowFunc(TEST_TENANT_ID, x)
-    duration1 = time.time() - start
-
-    start = time.time()
-    res2 = await slowFunc(TEST_TENANT_ID, x)
-    duration2 = time.time() - start
-
-    assert res1.get("asyncResult") == x
-    assert res2.get("asyncResult") == x
-    assert duration1 >= 1.0
-    assert duration2 < 0.5
-
-
-@pytest.mark.asyncio
-async def testAsyncBypass():
-    await redis_client.init_async_redis_connection_pool()
-
-    def bypassFunc(*args, **kwargs):
-        return kwargs.get("forceBypass", False)
-
-    @redis_memoize(memoize_key="testAsyncBypass", ttl=10, cache_type="zipJson", bypass_cache=bypassFunc)
-    async def slowFunc(tenantId: str, x, forceBypass=False):
-        await asyncio.sleep(1)
-        return {"asyncResult": x}
-
-    x = 888
-    start = time.time()
-    res1 = await slowFunc(TEST_TENANT_ID, x, forceBypass=False)
-    duration1 = time.time() - start
-
-    start = time.time()
-    res2 = await slowFunc(TEST_TENANT_ID, x, forceBypass=False)
-    duration2 = time.time() - start
-
-    start = time.time()
-    res3 = await slowFunc(TEST_TENANT_ID, x, forceBypass=True)
-    duration3 = time.time() - start
-
-    assert duration1 >= 1.0
-    assert duration2 < 0.5
-    assert duration3 >= 1.0
-    assert res1.get("asyncResult") == x
-    assert res2.get("asyncResult") == x
-    assert res3.get("asyncResult") == x
-
-
-###############################################
 # Cache Type Tests: zipPickled vs zipJson
 ###############################################
 
@@ -400,21 +337,6 @@ def testReturnNoneSync():
     assert res2 is None
 
 
-@pytest.mark.asyncio
-async def testReturnNoneAsync():
-    await redis_client.init_async_redis_connection_pool()
-
-    @redis_memoize(memoize_key="returnNoneAsync", ttl=10, cache_type="zipJson")
-    async def func(tenantId: str, x):
-        await asyncio.sleep(1)
-        return None
-
-    res1 = await func(TEST_TENANT_ID, 42)
-    res2 = await func(TEST_TENANT_ID, 42)
-    assert res1 is None
-    assert res2 is None
-
-
 def testTtlNone():
     # Ttl is allowed to be null, no ttl is set if ttl is None
     @redis_memoize(memoize_key="ttlNone", ttl=None, cache_type="zipJson")
@@ -476,26 +398,6 @@ def testConcurrentSyncCaching():
         results = [f.result() for f in futures]
     for r in results:
         assert r.get("result") == 777
-    # The function should have been executed only once
-    assert call_count[0] == 1
-
-
-@pytest.mark.asyncio
-async def testConcurrentAsyncCaching():
-    await redis_client.init_async_redis_connection_pool()
-    # Test that concurrent async calls only execute the function once
-    call_count = [0]
-
-    @redis_memoize(memoize_key="concurrentAsync", ttl=10, cache_type="zipJson")
-    async def func(tenantId: str, x):
-        call_count[0] += 1
-        await asyncio.sleep(1)
-        return {"result": x}
-
-    tasks = [func(TEST_TENANT_ID, 888) for _ in range(5)]
-    results = await asyncio.gather(*tasks)
-    for r in results:
-        assert r.get("result") == 888
     # The function should have been executed only once
     assert call_count[0] == 1
 

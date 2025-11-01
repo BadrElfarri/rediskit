@@ -7,7 +7,8 @@ import uuid
 import redis.asyncio as redis_async
 from redis import RedisError
 
-from rediskit import config, redis_client
+from rediskit import config
+from rediskit.redis.a_client import get_async_redis_connection
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class AsyncSemaphore:
         if lock_ttl is not None and lock_ttl <= 0:
             raise ValueError("Lock TTL must be positive or None")
 
-        self.redisConn = redis_conn if redis_conn else redis_client.get_async_redis_connection()
+        self.redisConn = redis_conn if redis_conn else get_async_redis_connection()
         self.namespace = f"{config.REDIS_TOP_NODE}:{key}"
         self.limit = limit
         self.acquireTimeOut = acquire_timeout

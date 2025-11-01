@@ -6,22 +6,22 @@ import uuid
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from rediskit import redis_client
-from rediskit.pubsub import (
+from rediskit.redis.a_client import get_async_redis_connection, init_async_redis_connection_pool
+from rediskit.redis.a_client.pubsub import (
     FanoutBroker,
-    _default_decoder,
-    _default_encoder,
-    apublish,
     iter_channel,
     publish,
     subscribe_channel,
 )
+from rediskit.redis.client import init_redis_connection_pool
+from rediskit.redis.client import publish as sync_publish
+from rediskit.redis.encoder import _default_decoder, _default_encoder
 
 # ------------------- Encoding / Decoding -------------------
 
 
 def test_default_encoder_decoder_variants_roundtrip():
-    redis_client.init_redis_connection_pool()
+    init_redis_connection_pool()
 
     # bytes -> stays bytes if invalid UTF-8, else becomes str
     b = b"\xff\xfe"  # invalid UTF-8
@@ -48,8 +48,8 @@ def test_default_encoder_decoder_variants_roundtrip():
 
 @pytest.mark.asyncio
 async def test_publish_with_custom_encoder_delivers_known_string_even_with_decode_responses():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:encoder:{uuid.uuid4()}"
 
@@ -68,7 +68,7 @@ async def test_publish_with_custom_encoder_delivers_known_string_even_with_decod
 
     t = asyncio.create_task(consume_once())
     await asyncio.sleep(0.05)
-    publish(channel, {"any": "data"}, encoder=custom_encoder)
+    sync_publish(channel, {"any": "data"}, encoder=custom_encoder)
     await asyncio.wait_for(t, timeout=5)
 
     # With default decoder, this will come through as the same string
@@ -80,11 +80,11 @@ async def test_publish_with_custom_encoder_delivers_known_string_even_with_decod
 
 @pytest.mark.asyncio
 async def test_iter_channel_closes_subscription_when_consumer_breaks():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:iter-clean:{uuid.uuid4()}"
-    conn = redis_client.get_async_redis_connection()
+    conn = get_async_redis_connection()
 
     async def consumer():
         async for m in iter_channel(channel):
@@ -93,7 +93,7 @@ async def test_iter_channel_closes_subscription_when_consumer_breaks():
 
     task = asyncio.create_task(consumer())
     await asyncio.sleep(0.05)
-    await apublish(channel, {"ok": 1})
+    await publish(channel, {"ok": 1})
     await asyncio.wait_for(task, timeout=5)
 
     await asyncio.sleep(0.05)
@@ -104,15 +104,15 @@ async def test_iter_channel_closes_subscription_when_consumer_breaks():
 
 @pytest.mark.asyncio
 async def test_subscribe_channel_as_context_manager_unsubscribes():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:ctx:{uuid.uuid4()}"
-    conn = redis_client.get_async_redis_connection()
+    conn = get_async_redis_connection()
 
     sub = await subscribe_channel(channel)
     async with sub:
-        await apublish(channel, {"x": 1})
+        await publish(channel, {"x": 1})
         got = await asyncio.wait_for(anext(sub), timeout=5)
         assert got == {"x": 1}
 
@@ -129,11 +129,10 @@ async def test_subscribe_channel_with_health_check_interval_if_supported():
 
     import pytest
 
-    from rediskit import redis_client
-    from rediskit.pubsub import apublish, subscribe_channel
+    from rediskit.redis.a_client.pubsub import publish, subscribe_channel
 
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:health:{uuid.uuid4()}"
 
@@ -143,7 +142,7 @@ async def test_subscribe_channel_with_health_check_interval_if_supported():
         pytest.skip("redis-py PubSub does not support health_check_interval in this environment")
 
     try:
-        await apublish(channel, {"ok": True})
+        await publish(channel, {"ok": True})
         got = await asyncio.wait_for(anext(sub), timeout=5)
         assert got == {"ok": True}
     finally:
@@ -157,8 +156,8 @@ async def test_subscribe_channel_with_health_check_interval_if_supported():
 
 @pytest.mark.asyncio
 async def test_fanout_broker_requires_start_before_subscribe():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     broker = FanoutBroker()
     with pytest.raises(RuntimeError):
@@ -167,8 +166,8 @@ async def test_fanout_broker_requires_start_before_subscribe():
 
 @pytest.mark.asyncio
 async def test_fanout_broker_stop_drains_and_consumers_finish():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:drain:{uuid.uuid4()}"
     broker = FanoutBroker()
@@ -184,7 +183,7 @@ async def test_fanout_broker_stop_drains_and_consumers_finish():
     task = asyncio.create_task(consume_all())
 
     # tick the broker loop once
-    await apublish(channel, {"noop": True})
+    await publish(channel, {"noop": True})
     await asyncio.sleep(0.05)
 
     await broker.stop()
@@ -194,8 +193,8 @@ async def test_fanout_broker_stop_drains_and_consumers_finish():
 
 @pytest.mark.asyncio
 async def test_fanout_broker_broadcasts_to_multiple_handles_channel_and_pattern():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     base = f"rediskit:test:fanout-multi:{uuid.uuid4()}"
     channel = f"{base}:news"
@@ -213,7 +212,7 @@ async def test_fanout_broker_broadcasts_to_multiple_handles_channel_and_pattern(
     waiter_pattern = asyncio.create_task(asyncio.wait_for(anext(on_pattern), timeout=5))
 
     await asyncio.sleep(0.05)
-    await apublish(channel, payload)
+    await publish(channel, payload)
 
     got_channel, got_pattern = await asyncio.gather(waiter_channel, waiter_pattern)
     assert got_channel == payload
@@ -226,8 +225,8 @@ async def test_fanout_broker_broadcasts_to_multiple_handles_channel_and_pattern(
 
 @pytest.mark.asyncio
 async def test_fanout_broker_queue_overflow_keeps_latest():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     base = f"rediskit:test:overflow:{uuid.uuid4()}"
     channel = f"{base}:orders"
@@ -237,8 +236,8 @@ async def test_fanout_broker_queue_overflow_keeps_latest():
 
     handle = await broker.subscribe(channel, maxsize=1)
 
-    await apublish(channel, {"id": "1"})
-    await apublish(channel, {"id": "2"})
+    await publish(channel, {"id": "1"})
+    await publish(channel, {"id": "2"})
     await asyncio.sleep(0.1)
 
     latest = await asyncio.wait_for(anext(handle), timeout=5)
@@ -250,8 +249,8 @@ async def test_fanout_broker_queue_overflow_keeps_latest():
 
 @pytest.mark.asyncio
 async def test_fanout_broker_decoder_exception_falls_back_to_raw():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:decoder-fallback:{uuid.uuid4()}"
 
@@ -265,7 +264,7 @@ async def test_fanout_broker_decoder_exception_falls_back_to_raw():
 
     payload = {"x": 1}
     await asyncio.sleep(0.05)
-    await apublish(channel, payload)
+    await publish(channel, payload)
 
     received = await asyncio.wait_for(anext(handle), timeout=5)
     # apublish uses default encoder -> JSON string; since decoder failed, raw JSON string should be delivered
@@ -280,8 +279,8 @@ async def test_fanout_broker_decoder_exception_falls_back_to_raw():
 
 @pytest.mark.asyncio
 async def test_pubsub_roundtrip_recovers_python_objects_basics():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:pubsub:{uuid.uuid4()}"
 
@@ -302,9 +301,9 @@ async def test_pubsub_roundtrip_recovers_python_objects_basics():
     consumer_task = asyncio.create_task(consume())
 
     await asyncio.sleep(0.05)
-    publish(channel, payloads[0])
-    await apublish(channel, payloads[1])
-    await apublish(channel, payloads[2])
+    sync_publish(channel, payloads[0])
+    await publish(channel, payloads[1])
+    await publish(channel, payloads[2])
 
     await asyncio.wait_for(consumer_task, timeout=5)
     assert received == [payloads[0], payloads[1], "raw-bytes"]
@@ -312,15 +311,15 @@ async def test_pubsub_roundtrip_recovers_python_objects_basics():
 
 @pytest.mark.asyncio
 async def test_channel_subscription_can_be_closed_and_rejected_after():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:pubsub:close:{uuid.uuid4()}"
 
     subscription = await subscribe_channel(channel)
 
     payload = {"id": "99", "status": "done", "total": 1}
-    await apublish(channel, payload)
+    await publish(channel, payload)
 
     received = await asyncio.wait_for(anext(subscription), timeout=5)
     assert received == payload
@@ -328,7 +327,7 @@ async def test_channel_subscription_can_be_closed_and_rejected_after():
     await subscription.aclose()
 
     await asyncio.sleep(0.05)
-    conn = redis_client.get_async_redis_connection()
+    conn = get_async_redis_connection()
     counts = await conn.pubsub_numsub(channel)
     if counts:
         assert counts[0][1] == 0
@@ -340,8 +339,8 @@ async def test_channel_subscription_can_be_closed_and_rejected_after():
 # ------------------- SubscriptionHandle conveniences -------------------
 @pytest.mark.asyncio
 async def test_subscription_handle_iter_auto_unsubscribes_and_stays_silent():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:handle-iter:{uuid.uuid4()}"
     broker = FanoutBroker()
@@ -349,7 +348,7 @@ async def test_subscription_handle_iter_auto_unsubscribes_and_stays_silent():
     handle = await broker.subscribe(channel)
 
     # Publish just one message; we'll consume it and then close the iterator.
-    await apublish(channel, {"n": 1})
+    await publish(channel, {"n": 1})
 
     it = handle.iter()
     got_first = await asyncio.wait_for(anext(it), timeout=5)
@@ -359,7 +358,7 @@ async def test_subscription_handle_iter_auto_unsubscribes_and_stays_silent():
     await it.aclose()
 
     # Publish again; since we're unsubscribed, the handle should not receive it.
-    await apublish(channel, {"n": 2})
+    await publish(channel, {"n": 2})
 
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(anext(handle), timeout=0.3)
@@ -385,8 +384,8 @@ async def _recv_one(handle):
 
 @pytest.mark.asyncio
 async def test_stress_test_10_000_subscribers_and_1_message_per_subscriber():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     N = 10_000
     broker = FanoutBroker()
@@ -397,7 +396,7 @@ async def test_stress_test_10_000_subscribers_and_1_message_per_subscriber():
 
     # Single publish all should see
     payload = 1  # keep the message tiny
-    await apublish(CHANNEL, payload)
+    await publish(CHANNEL, payload)
 
     # Drain one message from each subscriber
     received = await asyncio.gather(*[_recv_one(h) for h in handles])
@@ -424,8 +423,8 @@ async def test_exact_and_pattern_subscribers_receive_expected_messages():
       - sub2 (exact 'SomeRouteName:SomeName:SomethingElse') gets only message 2
       - subAll (pattern 'SomeRouteName:*') gets both
     """
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     broker = FanoutBroker(patterns=["SomeRouteName:*"])
     await broker.start()
@@ -436,8 +435,8 @@ async def test_exact_and_pattern_subscribers_receive_expected_messages():
         subAll = await broker.subscribe("SomeRouteName:*")
 
         # Publish two different channel messages
-        await apublish("SomeRouteName:SomeName", {"msg": 1})
-        await apublish("SomeRouteName:SomeName:SomethingElse", {"msg": 2})
+        await publish("SomeRouteName:SomeName", {"msg": 1})
+        await publish("SomeRouteName:SomeName:SomethingElse", {"msg": 2})
 
         # sub1: should only see msg 1
         m1 = await _next(sub1)
@@ -471,8 +470,8 @@ async def test_wildcard_in_channels_is_treated_as_pattern():
     so pattern subscriber and exact subscribers both get messages.
     (Relies on the start() patch that auto-moves wildcards to patterns.)
     """
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     broker = FanoutBroker()
     # Pass wildcard in channels on purpose; start() should convert it to PSUBSCRIBE
@@ -482,7 +481,7 @@ async def test_wildcard_in_channels_is_treated_as_pattern():
         sub_exact = await broker.subscribe("SomeRouteName:SomeName")
         sub_pattern = await broker.subscribe("SomeRouteName:*")
 
-        await apublish("SomeRouteName:SomeName", {"ok": True})
+        await publish("SomeRouteName:SomeName", {"ok": True})
 
         e = await _next(sub_exact)
         p = await _next(sub_pattern)
@@ -494,12 +493,12 @@ async def test_wildcard_in_channels_is_treated_as_pattern():
 
 
 @pytest.mark.asyncio
-async def test_fanout_broker_auto_restart_on_subscribe_after_task_dies(monkeypatch):
+async def test_fanout_broker_auto_restart_on_subscribe_after_task_dies():
     """
     If the background task dies, subscribe() should auto-restart the broker using last start kwargs.
     """
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:auto-restart:{uuid.uuid4()}"
     broker = FanoutBroker()
@@ -517,7 +516,7 @@ async def test_fanout_broker_auto_restart_on_subscribe_after_task_dies(monkeypat
     handle = await broker.subscribe(channel)
 
     # Roundtrip still works
-    await apublish(channel, {"ok": 1})
+    await publish(channel, {"ok": 1})
     got = await asyncio.wait_for(anext(handle), timeout=5)
     assert got == {"ok": 1}
 
@@ -527,8 +526,8 @@ async def test_fanout_broker_auto_restart_on_subscribe_after_task_dies(monkeypat
 
 @pytest.mark.asyncio
 async def test_fanout_broker_reconnects_and_resubscribes_after_connection_error(monkeypatch):
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     base = f"rediskit:test:reconnect:{uuid.uuid4()}"
     channel = f"{base}:news"
@@ -572,7 +571,7 @@ async def test_fanout_broker_reconnects_and_resubscribes_after_connection_error(
 
     # After reconnect, normal delivery should work for both subs
     payload = {"hello": "world"}
-    await apublish(channel, payload)
+    await publish(channel, payload)
     g1 = await asyncio.wait_for(anext(exact), timeout=5)
     g2 = await asyncio.wait_for(anext(pat), timeout=5)
     assert g1 == payload
@@ -585,8 +584,8 @@ async def test_fanout_broker_reconnects_and_resubscribes_after_connection_error(
 
 @pytest.mark.asyncio
 async def test_start_idempotent_and_remembers_subscriptions():
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     base = f"rediskit:test:start-idem:{uuid.uuid4()}"
     channel = f"{base}:news"
@@ -603,7 +602,7 @@ async def test_start_idempotent_and_remembers_subscriptions():
     h1 = await broker.subscribe(channel)
     h2 = await broker.subscribe(pattern)
 
-    await apublish(channel, {"ok": True})
+    await publish(channel, {"ok": True})
     r1 = await asyncio.wait_for(anext(h1), timeout=5)
     r2 = await asyncio.wait_for(anext(h2), timeout=5)
     assert r1 == {"ok": True}
@@ -619,8 +618,8 @@ async def test_exception_payload_is_passed_through_undecoded(monkeypatch):
     """
     If Redis delivers an Exception as message data, broker should pass it through (no decoding).
     """
-    redis_client.init_redis_connection_pool()
-    await redis_client.init_async_redis_connection_pool()
+    init_redis_connection_pool()
+    await init_async_redis_connection_pool()
 
     channel = f"rediskit:test:exception-payload:{uuid.uuid4()}"
     broker = FanoutBroker()

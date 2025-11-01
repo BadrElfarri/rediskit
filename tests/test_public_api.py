@@ -1,7 +1,7 @@
 import redis
 
 from rediskit.memoize import redis_memoize
-from rediskit.redis_client import init_redis_connection_pool
+from rediskit.redis.client import init_redis_connection_pool
 
 
 def test_basic_usage():

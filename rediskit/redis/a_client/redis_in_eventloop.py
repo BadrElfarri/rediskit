@@ -26,7 +26,7 @@ _registry_lock = threading.Lock()  # protects _registry mutations only
 
 def _make_client() -> redis_async.Redis:
     loop = asyncio.get_running_loop()
-    log.info("Creating new Redis pool client for event loop id=%s", id(loop))
+    log.info("Creating new Redis pool redis for event loop id=%s", id(loop))
     pool = ConnectionPool(
         host=config.REDIS_HOST,
         port=config.REDIS_PORT,
@@ -78,7 +78,7 @@ def get_async_client_for_current_loop() -> redis_async.Redis:
 
 async def close_loop_redis():
     """
-    Close the Redis client associated with the current loop.
+    Close the Redis redis associated with the current loop.
     Useful for graceful shutdown in tests or workers.
     """
     loop = asyncio.get_running_loop()

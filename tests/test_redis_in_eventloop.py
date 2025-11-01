@@ -5,7 +5,7 @@ from queue import Queue
 
 import pytest
 
-import rediskit.redis_in_eventloop as loop_redis
+import rediskit.redis.a_client.redis_in_eventloop as loop_redis
 
 
 class FakePool:
@@ -30,6 +30,9 @@ class FakeClient:
         return True
 
     async def close(self):
+        self.closed = True
+
+    async def aclose(self):
         self.closed = True
 
 
@@ -111,7 +114,7 @@ async def test_different_loops_get_different_clients(patch_factory_and_reset):
 async def test_close_creates_new_client_afterward(patch_factory_and_reset):
     c1 = await loop_redis.get_async_redis_connection_in_eventloop()
     await loop_redis.close_loop_redis()
-    # After close, getting again should create a fresh client
+    # After close, getting again should create a fresh redis
     c2 = await loop_redis.get_async_redis_connection_in_eventloop()
 
     assert c1 is not c2
