@@ -31,5 +31,5 @@ def get_async_redis_connection() -> redis_async.Redis:
     return get_async_client_for_current_loop()
 
 
-def close() -> None:
-    close_loop_redis()
+async def async_connection_close() -> None:
+    await close_loop_redis()
