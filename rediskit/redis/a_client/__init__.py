@@ -1,5 +1,5 @@
 # client/__init__.py
-from .connection import close, get_async_redis_connection, init_async_redis_connection_pool, redis_single_connection_context
+from .connection import async_connection_close, get_async_redis_connection, init_async_redis_connection_pool, redis_single_connection_context
 from .hash_op import h_del_cache_from_redis, h_get_cache_from_redis, h_scan_fields, h_set_cache_to_redis, hash_set_ttl_for_key
 from .json_op import (
     check_cache_matches,
@@ -19,7 +19,7 @@ __all__ = (
     "init_async_redis_connection_pool",
     "get_async_redis_connection",
     "redis_single_connection_context",
-    "close",
+    "async_connection_close",
     # --- hash operation
     "hash_set_ttl_for_key",
     "h_set_cache_to_redis",
