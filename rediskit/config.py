@@ -1,11 +1,13 @@
 import os
 
-from DockerBuildSystem import TerminalTools
+from dotenv import load_dotenv
 
 from rediskit.utils import base64_json_to_dict
 
-TerminalTools.LoadDefaultEnvironmentVariablesFile("private.env")
-TerminalTools.LoadDefaultEnvironmentVariablesFile(".env")
+if os.path.isfile("private.env"):
+    load_dotenv("private.env")
+if os.path.isfile(".env"):
+    load_dotenv(".env")
 
 # Redis Settings
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")

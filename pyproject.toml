@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.24"
+version = "0.0.25"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -25,12 +25,11 @@ classifiers = [
 dependencies = [
     "cryptography",
     "redis",
-    "polars",
     "python-redis-lock",
     "zstd",
     "pynacl",
-    "dockerbuildsystem",
     "httpx",
+    "dotenv",
 ]
 
 [dependency-groups]
@@ -39,7 +38,8 @@ dev = [
     "pytest",
     "mypy",
     "pytest-asyncio",
-    "types-zstd"
+    "types-zstd",
+    "polars"
 ]
 docker = [
     "dockerbuildsystem>=1.1.64",
