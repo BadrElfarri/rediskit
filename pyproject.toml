@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.25"
+version = "0.0.26"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [
@@ -22,24 +22,23 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
 ]
-dependencies = [
-    "cryptography",
-    "redis",
-    "python-redis-lock",
-    "zstd",
-    "pynacl",
-    "httpx",
-    "dotenv",
+dependencies = [ # Encryption, hashing, and SSL/TLS utilities
+    "pynacl", # Modern cryptographic library, used for Encryption
+    "redis", # Redis client for caching, messaging, or storage
+    "python-redis-lock", # Distributed locking mechanism using Redis
+    "zstd", # Compression and decompression using Zstandard
+    "httpx", # Async HTTP client for making API requests
+    "dotenv", # Load environment variables from a .env file
 ]
 
 [dependency-groups]
 dev = [
-    "ruff",
-    "pytest",
-    "mypy",
-    "pytest-asyncio",
-    "types-zstd",
-    "polars"
+    "ruff",               # Fast Python linter and formatter
+    "pytest",             # Testing framework
+    "mypy",               # Static type checker for Python
+    "pytest-asyncio",     # Pytest plugin for testing async code
+    "types-zstd",         # Type stubs for the zstd package
+    "polars"              # High-performance DataFrame library for analytics
 ]
 docker = [
     "dockerbuildsystem>=1.1.64",
