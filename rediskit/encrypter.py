@@ -18,6 +18,8 @@ class Encrypter:
         """
         keysBase64 shall have the following format {"__enc_v1": "32-byte key"...,"__enc_vn": ...}
         """
+        if keyHexDict is None:
+            raise Exception("REDIS_KIT_ENCRYPTION_SECRET cannot be None")
         self.encryptionKeys = keyHexDict
         self.latestVersion = list(self.encryptionKeys.keys())[-1]
 

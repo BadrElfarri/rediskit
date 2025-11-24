@@ -2,20 +2,21 @@ import base64
 import datetime
 import enum
 import json
+import logging
 import uuid
 from typing import Any
 
 
 def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
     if not keys_base64:
-        raise ValueError("Key is None.")
+        logging.error("No keys_base64 provided")
     try:
         # Decode from base64 to a JSON string, then load it into a dict
         decodedJson = base64.b64decode(keys_base64).decode("utf-8")
         decoded = json.loads(decodedJson)
         return decoded
-    except Exception as e:
-        raise ValueError("Invalid key format") from e
+    except Exception:
+        logging.error("No keys_base64 provided")
 
 
 def json_encoder(value: Any, raise_if_no_match: bool = False):
