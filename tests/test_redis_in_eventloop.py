@@ -45,7 +45,7 @@ def patch_factory_and_reset(monkeypatch):
     importlib.reload(loop_redis)
     factory_calls = {"n": 0}
 
-    def _fake_factory():
+    def _fake_factory(*args, **kwargs):
         factory_calls["n"] += 1
         return FakeClient()
 

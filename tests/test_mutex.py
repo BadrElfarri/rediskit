@@ -80,3 +80,66 @@ async def test_lock_expires_then_can_be_reacquired():
     l2 = get_async_redis_mutex_lock(lock_name, expire=5)
     assert await l2.acquire(blocking=False)
     await l2.release()
+
+
+@pytest.mark.asyncio
+async def test_nonblocking_wrapper_jumps_over_process_when_same_key_is_running():
+    lock_name = "job-jump-over"
+    executed = False
+
+    async def guarded_process():
+        nonlocal executed
+        async with nonblocking_mutex(lock_name, expire=5) as acquired:
+            if not acquired:
+                return  # jump over / bypass
+            executed = True
+            await asyncio.sleep(0.05)
+
+    # Simulate an already-running process holding the same lock
+    holder = get_async_redis_mutex_lock(lock_name, expire=5)
+    assert await holder.acquire(blocking=True)
+
+    try:
+        # This should "jump over" and not run the body
+        await guarded_process()
+        assert executed is False
+    finally:
+        await holder.release()
+
+    # After release, it should run normally
+    await guarded_process()
+    assert executed is True
+
+
+@pytest.mark.asyncio
+async def test_nonblocking_mutex_holds_lock_and_blocks_contender_until_exit():
+    lock_name = "job-nonblocking-blocks-contender"
+
+    entered = asyncio.Event()
+    release_now = asyncio.Event()
+
+    async def holder_task():
+        async with nonblocking_mutex(lock_name, expire=5) as acquired:
+            assert acquired is True
+            entered.set()  # signal: lock is held
+            await release_now.wait()  # keep it held until we say so
+
+    t = asyncio.create_task(holder_task())
+
+    # Wait until holder is inside the context (lock acquired)
+    await asyncio.wait_for(entered.wait(), timeout=2.0)
+
+    # Contender should NOT be able to acquire while holder holds it
+    contender = get_async_redis_mutex_lock(lock_name, expire=5)
+    got = await contender.acquire(blocking=False)
+    assert got is False
+
+    # Now let holder exit context (release lock)
+    release_now.set()
+    await asyncio.wait_for(t, timeout=2.0)
+
+    # After release, contender (or a new lock object) SHOULD be able to acquire
+    contender2 = get_async_redis_mutex_lock(lock_name, expire=5)
+    got2 = await contender2.acquire(blocking=False)
+    assert got2 is True
+    await contender2.release()

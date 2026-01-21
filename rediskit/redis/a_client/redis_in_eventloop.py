@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import redis.asyncio as redis_async
-from redis.asyncio import ConnectionPool
+from redis.asyncio import BlockingConnectionPool
 
 from rediskit import config
 
@@ -24,20 +24,33 @@ _registry: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _LoopSlot]" = w
 _registry_lock = threading.Lock()  # protects _registry mutations only
 
 
-def _make_client() -> redis_async.Redis:
+def _make_client(
+    host: str = config.REDIS_HOST,
+    port: int = config.REDIS_PORT,
+    password: str = config.REDIS_PASSWORD,
+    retry_on_timeout: bool = True,
+    decode_responses: bool = True,
+    socket_timeout: int = 10,
+    socket_connect_timeout: int = 5,
+    socket_keepalive: bool = True,
+    health_check_interval: int = 30,
+    max_connections: int = 15,
+    timeout: int = 5,
+) -> redis_async.Redis:
     loop = asyncio.get_running_loop()
     log.info("Creating new Redis pool redis for event loop id=%s", id(loop))
-    pool = ConnectionPool(
-        host=config.REDIS_HOST,
-        port=config.REDIS_PORT,
-        password=config.REDIS_PASSWORD,
-        retry_on_timeout=True,
-        decode_responses=True,
-        socket_timeout=10,
-        socket_connect_timeout=5,
-        socket_keepalive=True,
-        health_check_interval=30,
-        max_connections=10,
+    pool = BlockingConnectionPool(
+        host=host,
+        port=port,
+        password=password,
+        retry_on_timeout=retry_on_timeout,
+        decode_responses=decode_responses,
+        socket_timeout=socket_timeout,
+        socket_connect_timeout=socket_connect_timeout,
+        socket_keepalive=socket_keepalive,
+        health_check_interval=health_check_interval,
+        max_connections=max_connections,
+        timeout=timeout,
     )
     return redis_async.Redis(connection_pool=pool, client_name="rediskit")
 
@@ -51,7 +64,19 @@ def _get_or_create_slot_for(loop: asyncio.AbstractEventLoop) -> _LoopSlot:
         return slot
 
 
-async def get_async_redis_connection_in_eventloop() -> redis_async.Redis:
+async def get_async_redis_connection_in_eventloop(
+    host: str = config.REDIS_HOST,
+    port: int = config.REDIS_PORT,
+    password: str = config.REDIS_PASSWORD,
+    retry_on_timeout: bool = True,
+    decode_responses: bool = True,
+    socket_timeout: int = 10,
+    socket_connect_timeout: int = 5,
+    socket_keepalive: bool = True,
+    health_check_interval: int = 30,
+    max_connections: int = 10,
+    timeout: int = 5,
+) -> redis_async.Redis:
     loop = asyncio.get_running_loop()
     slot = _get_or_create_slot_for(loop)
 
@@ -60,7 +85,19 @@ async def get_async_redis_connection_in_eventloop() -> redis_async.Redis:
 
     async with slot.lock:
         if slot.client is None:
-            client = _make_client()
+            client = _make_client(
+                host=host,
+                port=port,
+                password=password,
+                retry_on_timeout=retry_on_timeout,
+                decode_responses=decode_responses,
+                socket_timeout=socket_timeout,
+                socket_connect_timeout=socket_connect_timeout,
+                socket_keepalive=socket_keepalive,
+                health_check_interval=health_check_interval,
+                max_connections=max_connections,
+                timeout=timeout,
+            )
             await client.ping()
             slot.client = client
     return slot.client
