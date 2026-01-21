@@ -1,5 +1,5 @@
 import json
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
 from redis import asyncio as redis_async
 
@@ -33,9 +33,7 @@ async def h_set_cache_to_redis(
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
     if enable_encryption:
-        mapping: Mapping[str | bytes, str | bytes | int | float] = {
-            field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()
-        }
+        mapping: dict[Any, Any] | None = {field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
     else:
         mapping = {field: json.dumps(value) for field, value in fields.items()}
     await conn.hset(node_key, mapping=mapping)

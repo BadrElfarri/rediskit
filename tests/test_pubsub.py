@@ -290,7 +290,7 @@ async def test_pubsub_roundtrip_recovers_python_objects_basics():
         b"raw-bytes",
     ]
 
-    received: list[object] = []
+    received = []
 
     async def consume() -> None:
         async for message in iter_channel(channel):
