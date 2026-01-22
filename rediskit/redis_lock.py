@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager, suppress
 
 import redis_lock
+from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from rediskit import config
 from rediskit.redis.a_client import get_async_redis_connection
@@ -29,7 +30,7 @@ def get_async_redis_mutex_lock(
     lock_class: type[redis_lock.Lock] | None = None,
     thread_local: bool = True,
     raise_on_release_error: bool = True,
-) -> redis_lock.Lock:
+) -> AsyncRedisLock:
     conn = get_async_redis_connection()
     lock = conn.lock(
         f"{config.REDIS_KIT_LOCK_ASYNC_SETTINGS_REDIS_NAMESPACE}:{lock_name}",
