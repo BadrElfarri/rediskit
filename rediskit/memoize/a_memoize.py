@@ -2,7 +2,7 @@ import functools
 import logging
 from typing import Any, Callable
 
-from redis import Redis
+from redis.asyncio import Redis as Redis
 
 from rediskit.memoize.tools import cache_type_options, deserialize_data, get_params, redis_storage_options, serialize_data, split_hash_key
 from rediskit.redis import a_client

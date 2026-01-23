@@ -1,4 +1,5 @@
 import asyncio
+from typing import Awaitable, cast
 
 from redis import asyncio as redis_async
 
@@ -11,6 +12,6 @@ async def readiness_ping(
 ) -> bool:
     try:
         conn = connection if connection is not None else get_async_redis_connection()
-        return bool(await asyncio.wait_for(conn.ping(), timeout=timeout))
+        return bool(await asyncio.wait_for(cast(Awaitable[bool], conn.ping()), timeout=timeout))
     except Exception:
         return False

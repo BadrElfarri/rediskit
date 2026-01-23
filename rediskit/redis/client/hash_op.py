@@ -1,5 +1,5 @@
 import json
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from redis import Redis
 
@@ -53,15 +53,15 @@ def h_get_cache_from_redis(
 
     if fields is None:
         # Return all fields in the hash
-        result = connection.hgetall(node_key)
+        result = cast(dict, connection.hgetall(node_key))
         data = {field: value for field, value in result.items()} if isinstance(result, dict) else {}
     elif isinstance(fields, str):
         # Return a single field's value
-        value = connection.hget(node_key, fields)
+        value = cast(str, connection.hget(node_key, fields))
         data = {fields: (value if value is not None else None)}
     elif isinstance(fields, list):
         # Return a list of values for the specified fields
-        values = connection.hmget(node_key, fields)
+        values = cast(list, connection.hmget(node_key, fields))
         data = {fields[i]: (value if value is not None else None) for i, value in enumerate(values)}
     else:
         raise ValueError("fields must be either None, a string, or a list of strings")

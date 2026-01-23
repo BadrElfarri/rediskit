@@ -2,8 +2,9 @@ import asyncio
 import logging
 import threading
 import weakref
+from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, cast
 
 import redis.asyncio as redis_async
 from redis.asyncio import BlockingConnectionPool
@@ -98,7 +99,7 @@ async def get_async_redis_connection_in_eventloop(
                 max_connections=max_connections,
                 timeout=timeout,
             )
-            await client.ping()
+            await cast(Awaitable[bool], client.ping())
             slot.client = client
     return slot.client
 

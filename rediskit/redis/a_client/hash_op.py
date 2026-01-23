@@ -1,5 +1,5 @@
 import json
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable, cast
 
 from redis import asyncio as redis_async
 
@@ -36,9 +36,9 @@ async def h_set_cache_to_redis(
         mapping: dict[Any, Any] | None = {field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
     else:
         mapping = {field: json.dumps(value) for field, value in fields.items()}
-    await conn.hset(node_key, mapping=mapping)
+    await cast(Awaitable[int], conn.hset(node_key, mapping=mapping))
     if ttl is not None:
-        await conn.hexpire(node_key, ttl, *mapping.keys())  # type: ignore[attr-defined]
+        await cast(Awaitable[Any], conn.hexpire(node_key, ttl, *mapping.keys()))  # type: ignore
 
 
 async def h_get_cache_from_redis(
@@ -54,13 +54,13 @@ async def h_get_cache_from_redis(
     conn = connection if connection is not None else get_async_redis_connection()
 
     if fields is None:
-        result = await conn.hgetall(node_key)
+        result = await cast(Awaitable[dict], conn.hgetall(node_key))
         data = {field: value for field, value in result.items()}
     elif isinstance(fields, str):
-        value = await conn.hget(node_key, fields)
+        value = await cast(Awaitable[str | None], conn.hget(node_key, fields))
         data = {fields: (value if value is not None else None)}
     elif isinstance(fields, list):
-        values = await conn.hmget(node_key, fields)
+        values = await cast(Awaitable[list], conn.hmget(node_key, fields))
         data = {fields[i]: (value if value is not None else None) for i, value in enumerate(values)}
     else:
         raise ValueError("fields must be either None, a string, or a list of strings")
@@ -107,4 +107,4 @@ async def h_del_cache_from_redis(
         field_names = fields
     else:
         raise ValueError("fields must be either a dictionary or a list of strings")
-    await conn.hdel(node_key, *field_names)
+    await cast(Awaitable[int], conn.hdel(node_key, *field_names))

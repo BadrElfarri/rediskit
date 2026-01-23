@@ -19,10 +19,10 @@ def get_keys(
 ) -> list[str]:
     node_key = top_node(tenant_id, key)
     connection = connection if connection is not None else get_redis_connection()
-    keys = connection.keys(node_key)
+    keys = connection.keys(node_key)  # type: ignore # fix later
     if only_last_key:
-        keys = [k.split(":")[-1] for k in keys]
-    return keys
+        keys = [k.split(":")[-1] for k in keys]  # type: ignore # fix later
+    return keys  # type: ignore # fix later
 
 
 def set_ttl_for_key(

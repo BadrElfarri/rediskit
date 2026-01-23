@@ -10,6 +10,7 @@ from typing import Any
 def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
     if not keys_base64:
         logging.error("No keys_base64 provided")
+        return {}
     try:
         # Decode from base64 to a JSON string, then load it into a dict
         decodedJson = base64.b64decode(keys_base64).decode("utf-8")
@@ -17,6 +18,8 @@ def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
         return decoded
     except Exception:
         logging.error("No keys_base64 provided")
+
+    return {}
 
 
 def json_encoder(value: Any, raise_if_no_match: bool = False):

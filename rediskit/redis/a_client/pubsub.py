@@ -75,7 +75,7 @@ class ChannelSubscription(AsyncIterator[Any]):
             raise
 
     async def aclose(self) -> None:
-        await self._iterator.aclose()
+        await self._iterator.aclose()  # type: ignore # fix later
         await self._ensure_closed()
 
     async def __aenter__(self) -> "ChannelSubscription":
@@ -140,7 +140,7 @@ class FanoutBroker:
         self,
         *,
         patterns: Iterable[str] | None = None,
-        decoder: callable | None = None,
+        decoder: Callable[..., Any] | None = None,
         connection: redis_async.Redis | None = None,
     ) -> None:
         self._patterns = list(patterns or [])
@@ -208,6 +208,7 @@ class FanoutBroker:
         if health_check_interval is not None:
             pubsub_kwargs["health_check_interval"] = health_check_interval
 
+        assert self._client
         self._ps = self._client.pubsub(**pubsub_kwargs)
 
         # merge init-time patterns with provided patterns
@@ -352,7 +353,7 @@ class FanoutBroker:
                 except Exception:
                     data = raw_data
 
-                targets = []
+                targets: list[asyncio.Queue] = []
                 async with self._lock:
                     if channel is not None:
                         targets.extend(self._subs.get(channel, ()))

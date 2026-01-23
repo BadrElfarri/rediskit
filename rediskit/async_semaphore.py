@@ -3,6 +3,7 @@ import logging
 import random
 import time
 import uuid
+from typing import Awaitable, cast
 
 import redis.asyncio as redis_async
 from redis import RedisError
@@ -145,7 +146,7 @@ class AsyncSemaphore:
         )
 
     async def get_active_process_unique_ids(self) -> set[str]:
-        return set(await self.redisConn.hkeys(self.hashKey))
+        return set(await cast(Awaitable[list], self.redisConn.hkeys(self.hashKey)))
 
     async def __aenter__(self):
         await self.acquire_blocking()

@@ -8,7 +8,7 @@ from rediskit.redis.a_client.redis_in_eventloop import close_loop_redis, get_asy
 
 async def init_async_redis_connection_pool(
     host: str = config.REDIS_HOST,
-    port: str = config.REDIS_PORT,
+    port: int = config.REDIS_PORT,
     password: str = config.REDIS_PASSWORD,
     retry_on_timeout: bool = True,
     decode_responses: bool = True,
