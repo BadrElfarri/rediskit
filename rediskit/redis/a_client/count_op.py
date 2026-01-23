@@ -2,8 +2,8 @@ from typing import Awaitable, Callable, cast
 
 from redis import asyncio as redis_async
 
-from rediskit import get_redis_top_node
 from rediskit.redis.a_client import get_async_redis_connection
+from rediskit.redis.node import get_redis_top_node
 
 
 async def counter(

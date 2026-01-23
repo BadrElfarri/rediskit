@@ -2,8 +2,8 @@ from typing import Callable, cast
 
 import redis
 
-from rediskit import get_redis_top_node
 from rediskit.redis.client import get_redis_connection
+from rediskit.redis.node import get_redis_top_node
 
 
 def counter(
