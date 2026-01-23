@@ -1,5 +1,6 @@
 # client/__init__.py
 from .connection import close, get_redis_connection, init_redis_connection_pool
+from .count_op import counter, counter_value
 from .hash_op import h_del_cache_from_redis, h_get_cache_from_redis, h_scan_fields, h_set_cache_to_redis, hash_set_ttl_for_key
 from .json_op import (
     check_cache_matches,
@@ -44,4 +45,6 @@ __all__ = (
     # --- string operation
     "load_blob_from_redis",
     "dump_blob_to_redis",
+    "counter",
+    "counter_value",
 )
