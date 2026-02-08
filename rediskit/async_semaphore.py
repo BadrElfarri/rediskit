@@ -38,6 +38,8 @@ class AsyncSemaphore:
         self.acquireTimeOut = acquire_timeout
         self.ttl = lock_ttl or 0
         self.process_unique_id = str(uuid.uuid4()) if not process_unique_id else process_unique_id
+        self.holder_id: str | None = None
+
         self.hashKey = f"{self.namespace}:holders"
         self.ttl_auto_renewal = ttl_auto_renewal if self.ttl else False
 
@@ -73,11 +75,11 @@ class AsyncSemaphore:
 
     async def is_acquired_by_process(self):
         try:
-            return await self.redisConn.hexists(self.hashKey, self.process_unique_id)
+            return bool(self.holder_id) and await self.redisConn.hexists(self.hashKey, self.holder_id)
         except RedisError as e:
             raise RuntimeError(f"Failed to check semaphore ownership: {e}")
 
-    async def acquire_lock(self):
+    async def acquire_lock(self, holder_id: str):
         acquired_time_stamp = int(time.time())
         lua_script = """
         local current_count = redis.call('HLEN', KEYS[1])
@@ -93,11 +95,20 @@ class AsyncSemaphore:
             return False
         try:
             if self.ttl:
-                result = await self.redisConn.eval(lua_script, 1, self.hashKey, self.process_unique_id, self.limit, acquired_time_stamp, self.ttl)
+                result = await self.redisConn.eval(
+                    lua_script,
+                    1,
+                    self.hashKey,
+                    holder_id,
+                    self.limit,
+                    acquired_time_stamp,
+                    self.ttl,
+                )
             else:
-                result = await self.redisConn.hset(self.hashKey, mapping={self.process_unique_id: acquired_time_stamp})
+                result = await self.redisConn.hset(self.hashKey, mapping={holder_id: acquired_time_stamp})
 
             if result == 1:
+                self.holder_id = holder_id
                 log.info(f"Acquired semaphore lock: {self.hashKey}, total locks holding: {await self.get_active_count()} out of {self.limit}")
                 if self.ttl and self.ttl_auto_renewal:
                     await self.start_ttl_renewal()
@@ -111,11 +122,14 @@ class AsyncSemaphore:
             while not self._stop_ttl_renew.is_set():
                 await asyncio.sleep(renew_interval)
                 try:
+                    if not self.holder_id:
+                        continue
                     lua_script = """
                     redis.call('HEXPIRE', KEYS[1], tonumber(ARGV[2]), 'FIELDS', 1, ARGV[1])
                     """
-                    await self.redisConn.eval(lua_script, 1, self.hashKey, self.process_unique_id, self.ttl)
-                    log.debug(f"Renewed TTL for {self.hashKey} - {self.process_unique_id}")
+                    await self.redisConn.eval(lua_script, 1, self.hashKey, self.holder_id, self.ttl)
+                    log.debug(f"Renewed TTL for {self.hashKey} - {self.holder_id}")
+
                 except Exception as e:
                     log.warning(f"Semaphore TTL renewal failed: {e}")
         except asyncio.CancelledError:
@@ -125,19 +139,22 @@ class AsyncSemaphore:
         if self.ttl and self.ttl_auto_renewal:
             await self.stop_ttl_renewal()
         try:
-            await self.redisConn.hdel(self.hashKey, self.process_unique_id)
-            log.info(f"Released semaphore lock: {self.hashKey}, total locks holding {await self.get_active_count()} out of {self.limit}")
+            if self.holder_id:
+                await self.redisConn.hdel(self.hashKey, self.holder_id)
+                log.info(f"Released semaphore lock: {self.hashKey}, total locks holding {await self.get_active_count()} out of {self.limit}")
+                self.holder_id = None
         except RedisError as e:
             raise RuntimeError(f"Failed to release semaphore: {e}")
 
     async def acquire_blocking(self):
         if await self.is_acquired_by_process():
             raise RuntimeError("Semaphore already acquired")
+        holder_id = f"{self.process_unique_id}:{uuid.uuid4()}"  # unique per acquire
         end_time = time.time() + self.acquireTimeOut
         backoff = 0.1
         while time.time() < end_time:
-            if await self.acquire_lock():
-                return self.process_unique_id
+            if await self.acquire_lock(holder_id):
+                return holder_id
             jitter = random.uniform(0, 0.1)
             await asyncio.sleep(backoff + jitter)
             backoff = min(backoff * 2, 2)

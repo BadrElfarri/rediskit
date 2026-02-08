@@ -122,7 +122,8 @@ async def test_different_process_unique_ids():
     await sem1.acquire_blocking()
     await sem2.acquire_blocking()
     holder_keys = await sem2.get_active_process_unique_ids()
-    assert {process_unique_id1, process_unique_id2} == holder_keys
+    prefixes = {k.split(":", 1)[0] for k in holder_keys}
+    assert {process_unique_id1, process_unique_id2} == prefixes
     await sem1.release_lock()
     await sem2.release_lock()
 
@@ -343,3 +344,26 @@ async def test_semaphore_large_parallel():
     assert len(results) == total
     # Should take a bit more than 2s (2 batches of 100 with 1s hold each)
     assert elapsed >= 2.0 and elapsed < 4.0, f"Expected ~2s, got {elapsed:.2f}s"
+
+
+@pytest.mark.asyncio
+async def test_same_instance_parallel_acquire_should_fill_limit():
+    key = f"testsem:{uuid.uuid4()}"
+    sem = await semaphore(key, limit=3, lock_ttl=10)
+
+    active_counts = []
+    errors = []
+
+    async def worker():
+        try:
+            async with sem:
+                active_counts.append(await sem.get_active_count())
+                await asyncio.sleep(0.2)
+        except Exception as e:
+            errors.append(e)
+
+    await asyncio.gather(*(worker() for _ in range(3)))
+
+    # EXPECT: all 3 can hold concurrently
+    assert not errors
+    assert max(active_counts) == 3
