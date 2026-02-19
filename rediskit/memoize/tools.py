@@ -108,7 +108,12 @@ def get_params(
     def compute_tenant_id(wrapped_func: Callable[..., Any], *args, **kwargs) -> str | None:
         bound_args = inspect.signature(wrapped_func).bind(*args, **kwargs)
         bound_args.apply_defaults()
-        tenant_id = bound_args.arguments.get("tenantId") or bound_args.kwargs.get("tenantId")
+        tenant_id = (
+            bound_args.arguments.get("tenantId")
+            or bound_args.kwargs.get("tenantId")
+            or bound_args.arguments.get("tenant_id")
+            or bound_args.kwargs.get("tenant_id")
+        )
         return tenant_id
 
     def get_lock_name(tenant_id: str | None, computed_memoize_key: str) -> str:
