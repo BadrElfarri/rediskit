@@ -1,9 +1,10 @@
 import asyncio
+import contextvars
 import logging
 import random
-import time
 import uuid
-from typing import Awaitable, cast
+from dataclasses import dataclass
+from typing import Awaitable, Optional, Tuple, cast
 
 import redis.asyncio as redis_async
 from redis import RedisError
@@ -12,6 +13,30 @@ from rediskit import config
 from rediskit.redis.a_client import get_async_redis_connection
 
 log = logging.getLogger(__name__)
+
+_RENEW_LUA = """
+local v = redis.call('GET', KEYS[1])
+if v == ARGV[1] then
+  return redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+end
+return 0
+"""
+
+_RELEASE_LUA = """
+local v = redis.call('GET', KEYS[1])
+if v == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+
+@dataclass
+class _Lease:
+    holder_id: str
+    slot_key: str
+    renew_task: Optional[asyncio.Task]
+    stop_event: asyncio.Event
 
 
 class AsyncSemaphore:
@@ -24,6 +49,12 @@ class AsyncSemaphore:
         redis_conn: redis_async.Redis | None = None,
         process_unique_id: str | None = None,
         ttl_auto_renewal: bool = True,
+        backoff_initial: float = 0.5,
+        backoff_max: float = 2.0,
+        backoff_multiplier: float = 1.5,
+        backoff_jitter: Tuple[float, float] = (0.8, 1.2),
+        renew_ratio: float = 0.7,  # renew every ttl * renew_ratio
+        renew_jitter: Tuple[float, float] = (0.85, 1.15),
     ):
         if limit <= 0:
             raise ValueError("Limit must be positive")
@@ -36,140 +67,179 @@ class AsyncSemaphore:
         self.namespace = f"{config.REDIS_TOP_NODE}:{key}"
         self.limit = limit
         self.acquireTimeOut = acquire_timeout
-        self.ttl = lock_ttl or 0
+        self.ttl = lock_ttl
         self.process_unique_id = str(uuid.uuid4()) if not process_unique_id else process_unique_id
-        self.holder_id: str | None = None
+        self.ttl_auto_renewal = bool(ttl_auto_renewal) and (self.ttl is not None)
 
-        self.hashKey = f"{self.namespace}:holders"
-        self.ttl_auto_renewal = ttl_auto_renewal if self.ttl else False
+        self.backoff_initial = float(backoff_initial)
+        self.backoff_max = float(backoff_max)
+        self.backoff_multiplier = float(backoff_multiplier)
+        self.backoff_jitter = backoff_jitter
 
-        self._renew_ttl_task = None
-        self._stop_ttl_renew = asyncio.Event()
+        self.renew_ratio = float(renew_ratio)
+        self.renew_jitter = renew_jitter
 
-    async def stop_ttl_renewal(self):
-        if not self.ttl:
-            raise ValueError("TTL must be set to stop TTL renewal")
-        self._stop_ttl_renew.set()
-        if self._renew_ttl_task:
-            self._renew_ttl_task.cancel()
+        self._lease_var: contextvars.ContextVar[Optional[_Lease]] = contextvars.ContextVar(
+            f"AsyncSemaphoreLease:{self.namespace}",
+            default=None,
+        )
+
+    @property
+    def holder_id(self) -> Optional[str]:
+        lease = self._lease_var.get()
+        return lease.holder_id if lease else None
+
+    @property
+    def hashKey(self) -> str:
+        lease = self._lease_var.get()
+        return lease.slot_key if lease else f"{self.namespace}:slots"
+
+    def _slot_key(self, i: int) -> str:
+        return f"{self.namespace}:slot:{i}"
+
+    async def _start_ttl_renewal(self, lease: _Lease) -> None:
+        if self.ttl is None:
+            return
+        lease.stop_event.clear()
+        lease.renew_task = asyncio.create_task(self._renew_loop(lease))
+
+    async def _stop_ttl_renewal(self, lease: _Lease) -> None:
+        lease.stop_event.set()
+        if lease.renew_task:
+            lease.renew_task.cancel()
             try:
-                await self._renew_ttl_task
+                await lease.renew_task
             except asyncio.CancelledError:
                 pass
-            self._renew_ttl_task = None
+            lease.renew_task = None
 
-    async def start_ttl_renewal(self):
-        if not self.ttl:
-            raise ValueError("TTL must be set to start TTL renewal")
-        self._stop_ttl_renew.clear()
-        self._renew_ttl_task = asyncio.create_task(self._renew_loop())
+    async def _renew_loop(self, lease: _Lease) -> None:
+        assert self.ttl is not None
+        ttl_ms = int(self.ttl * 1000)
 
-    async def get_active_count(self):
+        # renew before expiry; ensure interval < ttl
+        base = max(0.2, self.ttl * self.renew_ratio)
+        base = min(base, max(0.2, self.ttl * 0.9))  # never schedule after expiry
+
         try:
-            return await self.redisConn.hlen(self.hashKey)
+            while not lease.stop_event.is_set():
+                await asyncio.sleep(base * random.uniform(*self.renew_jitter))
+
+                ok = await self.redisConn.eval(_RENEW_LUA, 1, lease.slot_key, lease.holder_id, ttl_ms)
+                if ok != 1:
+                    log.warning("Semaphore lease lost for %s", lease.slot_key)
+                    return
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            log.warning("Semaphore TTL renewal failed: %s", e)
+            return
+
+    async def get_active_count(self) -> int:
+        try:
+            keys = [self._slot_key(i) for i in range(self.limit)]
+            return int(await self.redisConn.exists(*keys))
         except RedisError as e:
             raise RuntimeError(f"Failed to get active count: {e}")
 
-    async def lock_limit_reached(self):
-        return await self.get_active_count() >= self.limit
+    async def lock_limit_reached(self) -> bool:
+        return (await self.get_active_count()) >= self.limit
 
-    async def is_acquired_by_process(self):
+    async def is_acquired_by_process(self) -> bool:
+        lease = self._lease_var.get()
+        if not lease:
+            return False
         try:
-            return bool(self.holder_id) and await self.redisConn.hexists(self.hashKey, self.holder_id)
+            v = await self.redisConn.get(lease.slot_key)
+            return v == lease.holder_id
         except RedisError as e:
             raise RuntimeError(f"Failed to check semaphore ownership: {e}")
 
-    async def acquire_lock(self, holder_id: str):
-        acquired_time_stamp = int(time.time())
-        lua_script = """
-        local current_count = redis.call('HLEN', KEYS[1])
-        if current_count < tonumber(ARGV[2]) then
-            if redis.call('HSETNX', KEYS[1], ARGV[1], ARGV[3]) == 1 then
-                redis.call('HEXPIRE', KEYS[1], tonumber(ARGV[4]), 'FIELDS', 1, ARGV[1])
-                return 1
-            end
-        end
-        return 0
-        """
-        if await self.lock_limit_reached():
-            return False
+    async def get_active_process_unique_ids(self) -> set[str]:
+        keys = [self._slot_key(i) for i in range(self.limit)]
         try:
-            if self.ttl:
-                result = await self.redisConn.eval(
-                    lua_script,
-                    1,
-                    self.hashKey,
-                    holder_id,
-                    self.limit,
-                    acquired_time_stamp,
-                    self.ttl,
-                )
-            else:
-                result = await self.redisConn.hset(self.hashKey, mapping={holder_id: acquired_time_stamp})
+            vals = await cast(Awaitable[list], self.redisConn.mget(*keys))
+            return {v for v in vals if v is not None}
+        except RedisError as e:
+            raise RuntimeError(f"Failed to get active process ids: {e}")
 
-            if result == 1:
-                self.holder_id = holder_id
-                log.info(f"Acquired semaphore lock: {self.hashKey}, total locks holding: {await self.get_active_count()} out of {self.limit}")
-                if self.ttl and self.ttl_auto_renewal:
-                    await self.start_ttl_renewal()
-            return result == 1
+    async def start_ttl_renewal(self) -> None:
+        if self.ttl is None:
+            raise ValueError("TTL must be set to start TTL renewal")
+        lease = self._lease_var.get()
+        if lease:
+            await self._start_ttl_renewal(lease)
+
+    async def stop_ttl_renewal(self) -> None:
+        if self.ttl is None:
+            raise ValueError("TTL must be set to stop TTL renewal")
+        lease = self._lease_var.get()
+        if lease:
+            await self._stop_ttl_renewal(lease)
+
+    async def acquire_lock(self, holder_id: str) -> bool:
+        indices = list(range(self.limit))
+        random.shuffle(indices)
+
+        try:
+            for i in indices:
+                k = self._slot_key(i)
+                if self.ttl is None:
+                    ok = await self.redisConn.set(k, holder_id, nx=True)
+                else:
+                    ok = await self.redisConn.set(k, holder_id, nx=True, px=int(self.ttl * 1000))
+
+                if ok:
+                    lease = _Lease(holder_id=holder_id, slot_key=k, renew_task=None, stop_event=asyncio.Event())
+                    self._lease_var.set(lease)
+
+                    if self.ttl_auto_renewal:
+                        await self._start_ttl_renewal(lease)
+                    return True
+
+            return False
         except RedisError as e:
             raise RuntimeError(f"Failed to acquire semaphore: {e}")
 
-    async def _renew_loop(self):
-        renew_interval = max(1, self.ttl // 2)
-        try:
-            while not self._stop_ttl_renew.is_set():
-                await asyncio.sleep(renew_interval)
-                try:
-                    if not self.holder_id:
-                        continue
-                    lua_script = """
-                    redis.call('HEXPIRE', KEYS[1], tonumber(ARGV[2]), 'FIELDS', 1, ARGV[1])
-                    """
-                    await self.redisConn.eval(lua_script, 1, self.hashKey, self.holder_id, self.ttl)
-                    log.debug(f"Renewed TTL for {self.hashKey} - {self.holder_id}")
-
-                except Exception as e:
-                    log.warning(f"Semaphore TTL renewal failed: {e}")
-        except asyncio.CancelledError:
-            pass
-
-    async def release_lock(self):
-        if self.ttl and self.ttl_auto_renewal:
-            await self.stop_ttl_renewal()
-        try:
-            if self.holder_id:
-                await self.redisConn.hdel(self.hashKey, self.holder_id)
-                log.info(f"Released semaphore lock: {self.hashKey}, total locks holding {await self.get_active_count()} out of {self.limit}")
-                self.holder_id = None
-        except RedisError as e:
-            raise RuntimeError(f"Failed to release semaphore: {e}")
-
-    async def acquire_blocking(self):
+    async def acquire_blocking(self) -> str:
         if await self.is_acquired_by_process():
             raise RuntimeError("Semaphore already acquired")
-        holder_id = f"{self.process_unique_id}:{uuid.uuid4()}"  # unique per acquire
-        end_time = time.time() + self.acquireTimeOut
-        backoff = 0.1
-        while time.time() < end_time:
+
+        holder_id = f"{self.process_unique_id}:{uuid.uuid4()}"
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + float(self.acquireTimeOut)
+
+        backoff = self.backoff_initial
+        while loop.time() < deadline:
             if await self.acquire_lock(holder_id):
                 return holder_id
-            jitter = random.uniform(0, 0.1)
-            await asyncio.sleep(backoff + jitter)
-            backoff = min(backoff * 2, 2)
+
+            await asyncio.sleep(backoff * random.uniform(*self.backoff_jitter))
+            backoff = min(backoff * self.backoff_multiplier, self.backoff_max)
+
         raise RuntimeError(
-            f"Timeout: Unable to acquire the semaphore lock {self.hashKey}, total locks holding {await self.get_active_count()} out of {self.limit}"
+            f"Timeout: Unable to acquire the semaphore lock {self.namespace}, total locks holding {await self.get_active_count()} out of {self.limit}"
         )
 
-    async def get_active_process_unique_ids(self) -> set[str]:
-        return set(await cast(Awaitable[list], self.redisConn.hkeys(self.hashKey)))
+    async def release_lock(self) -> None:
+        lease = self._lease_var.get()
+        if not lease:
+            return
+
+        try:
+            if self.ttl_auto_renewal:
+                await self._stop_ttl_renewal(lease)
+
+            await self.redisConn.eval(_RELEASE_LUA, 1, lease.slot_key, lease.holder_id)
+        except RedisError as e:
+            raise RuntimeError(f"Failed to release semaphore: {e}")
+        finally:
+            self._lease_var.set(None)
 
     async def __aenter__(self):
         await self.acquire_blocking()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if not await self.is_acquired_by_process():
-            return
         await self.release_lock()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rediskit"
-version = "0.0.38"
+version = "0.0.39"
 description = "A comprehensive Redis toolkit for Python with caching, memoization, and utilities"
 readme = "README.md"
 authors = [

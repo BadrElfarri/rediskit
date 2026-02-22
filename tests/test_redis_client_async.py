@@ -230,3 +230,11 @@ async def test_async_readiness_ping(connection):
     conn = get_async_redis_connection()
     assert await readiness_ping(conn) is True
     assert await readiness_ping() is True
+
+
+@pytest.mark.asyncio
+async def test_async_redis_connection_is_singleton():
+    await init_async_redis_connection_pool(max_connections=10)
+    r1 = get_async_redis_connection()
+    r2 = get_async_redis_connection()
+    assert r1 is r2, "Expected singleton async redis client; multiple clients = multiple pools = many connections"

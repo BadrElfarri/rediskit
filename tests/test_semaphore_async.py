@@ -1,10 +1,13 @@
 import asyncio
+import sys
+import textwrap
 import time
 import uuid
 
 import pytest
 import pytest_asyncio
 
+from rediskit import config
 from rediskit.async_semaphore import AsyncSemaphore
 from rediskit.redis import get_redis_top_node
 from rediskit.redis.a_client import get_async_redis_connection
@@ -367,3 +370,200 @@ async def test_same_instance_parallel_acquire_should_fill_limit():
     # EXPECT: all 3 can hold concurrently
     assert not errors
     assert max(active_counts) == 3
+
+
+@pytest.mark.asyncio
+async def test_pool_not_leaking_in_use_connections_under_contention():
+    max_conn = 10
+    await init_async_redis_connection_pool(max_connections=max_conn)
+
+    redis = get_async_redis_connection()
+    pool = redis.connection_pool
+
+    key = f"testsem:{uuid.uuid4()}"
+    limit = 5
+    total = 50
+
+    semaphores = [AsyncSemaphore(key=key, limit=limit, acquire_timeout=5, lock_ttl=5, redis_conn=redis) for _ in range(total)]
+
+    async def worker(i: int):
+        async with semaphores[i]:
+            await asyncio.sleep(0.01)
+
+    await asyncio.gather(*(worker(i) for i in range(total)))
+    await asyncio.sleep(0)
+
+    in_use = len(getattr(pool, "_in_use_connections", []))
+    available = len(getattr(pool, "_available_connections", []))
+    total_known = in_use + available
+
+    assert in_use == 0
+    assert total_known <= max_conn
+
+
+@pytest.mark.asyncio
+async def test_no_pool_timeout_errors_under_burst():
+    await init_async_redis_connection_pool(max_connections=10, timeout=2)
+
+    redis = get_async_redis_connection()
+    key = f"testsem:{uuid.uuid4()}"
+
+    limit = 5
+    total = 100
+    semaphores = [AsyncSemaphore(key=key, limit=limit, acquire_timeout=10, lock_ttl=10, redis_conn=redis) for _ in range(total)]
+
+    errors: list[Exception] = []
+
+    async def worker(i: int):
+        try:
+            async with semaphores[i]:
+                # do a couple redis operations to create more pressure than just lock ops
+                await redis.ping()
+                await asyncio.sleep(0.02)
+        except Exception as e:
+            errors.append(e)
+
+    await asyncio.gather(*(worker(i) for i in range(total)))
+
+    # If pool is overloaded, you'll typically see TimeoutError / ConnectionError / "Too many connections"
+    assert not errors, f"Errors seen under burst: {[type(e).__name__ + ':' + str(e) for e in errors[:5]]}"
+
+
+@pytest.mark.asyncio
+async def test_pool_not_exhausted_under_realistic_pressure():
+    max_conn = 10
+    await init_async_redis_connection_pool(max_connections=max_conn, timeout=1)
+
+    redis = get_async_redis_connection()
+    pool = redis.connection_pool
+
+    key = f"testsem:{uuid.uuid4()}"
+    limit = 10
+    total = 200
+
+    semaphores = [AsyncSemaphore(key=key, limit=limit, acquire_timeout=10, lock_ttl=5, redis_conn=redis) for _ in range(total)]
+
+    async def worker(i: int):
+        async with semaphores[i]:
+            # force some redis usage while held
+            await redis.ping()
+            await asyncio.sleep(0.01)
+
+    await asyncio.gather(*(worker(i) for i in range(total)))
+    await asyncio.sleep(0)
+
+    in_use = len(getattr(pool, "_in_use_connections", []))
+    assert in_use == 0, f"Connections stuck checked-out: {in_use}"
+
+
+@pytest.mark.asyncio
+async def test_no_leftover_slot_keys_after_release():
+    key = f"testsem:{uuid.uuid4()}"
+    sem = await semaphore(key, limit=3, lock_ttl=5)
+
+    await sem.acquire_blocking()
+    await sem.release_lock()
+
+    redis = get_async_redis_connection()
+    prefix = f"{config.REDIS_TOP_NODE}:{key}:slot:"
+    leftovers = [k async for k in redis.scan_iter(match=f"{prefix}*")]
+    assert leftovers == [], f"Leftover slot keys: {leftovers}"
+
+
+@pytest.mark.asyncio
+async def test_release_does_not_delete_other_holders_slot():
+    redis = get_async_redis_connection()
+    key = f"testsem:{uuid.uuid4()}"
+
+    sem1 = AsyncSemaphore(key=key, limit=1, acquire_timeout=5, lock_ttl=5, redis_conn=redis)
+    sem2 = AsyncSemaphore(key=key, limit=1, acquire_timeout=5, lock_ttl=5, redis_conn=redis)
+
+    await sem1.acquire_blocking()
+    slot_key = sem1.hashKey
+
+    # simulate sem1 losing lease (expiry/crash/manual delete)
+    await redis.delete(slot_key)
+
+    # sem2 should acquire the (same) slot key now
+    await sem2.acquire_blocking()
+    assert sem2.hashKey == slot_key
+
+    # sem1 releasing now MUST NOT delete sem2's lease
+    await sem1.release_lock()
+
+    assert await sem2.is_acquired_by_process(), "sem1 release deleted sem2 lease (bug)"
+    await sem2.release_lock()
+
+
+@pytest.mark.asyncio
+async def test_sudden_crash_does_not_keep_slot():
+    redis = get_async_redis_connection()
+    key = f"testsem:{uuid.uuid4()}"
+
+    ttl = 1  # seconds
+    sem1 = AsyncSemaphore(key=key, limit=1, acquire_timeout=2, lock_ttl=ttl, redis_conn=redis, ttl_auto_renewal=True)
+    sem2 = AsyncSemaphore(key=key, limit=1, acquire_timeout=5, lock_ttl=ttl, redis_conn=redis, ttl_auto_renewal=True)
+
+    await sem1.acquire_blocking()
+
+    # simulate crash: stop renewal and drop reference (no release)
+    await sem1.stop_ttl_renewal()
+    crash_key = sem1.hashKey
+    del sem1
+
+    # slot should still exist briefly
+    assert await redis.exists(crash_key) == 1
+
+    # after ttl, slot must disappear (auto cleanup)
+    await asyncio.sleep(ttl + 0.5)
+    assert await redis.exists(crash_key) == 0
+
+    # sem2 should now be able to acquire
+    assert await sem2.acquire_blocking()
+    await sem2.release_lock()
+
+
+@pytest.mark.asyncio
+async def test_hard_crash_process_exits_does_not_keep_slot():
+    ttl = 2
+    key = f"testsem:{uuid.uuid4()}"
+
+    await init_async_redis_connection_pool()
+    redis = get_async_redis_connection()
+
+    # Child script: acquire then hard-exit
+    child_code = textwrap.dedent(f"""
+        import os, asyncio
+        from rediskit.redis.a_client.connection import init_async_redis_connection_pool
+        from rediskit.redis.a_client import get_async_redis_connection
+        from rediskit.async_semaphore import AsyncSemaphore
+
+        async def main():
+            await init_async_redis_connection_pool()
+            r = get_async_redis_connection()
+            sem = AsyncSemaphore(key="{key}", limit=1, acquire_timeout=5, lock_ttl={ttl}, redis_conn=r, ttl_auto_renewal=False)
+            await sem.acquire_blocking()
+            # hard crash: no cleanup, no finally
+            os._exit(1)
+
+        asyncio.run(main())
+    """)
+
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        child_code,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.wait()
+
+    await asyncio.sleep(0.1)
+
+    await asyncio.sleep(ttl + 0.5)
+    sem2 = AsyncSemaphore(key=key, limit=1, acquire_timeout=5, lock_ttl=ttl, redis_conn=redis, ttl_auto_renewal=False)
+    assert await sem2.acquire_blocking()
+    await sem2.release_lock()
+
+    keys = [k async for k in redis.scan_iter(match=f"{config.REDIS_TOP_NODE}:{key}:slot:*")]
+    assert keys == []
