@@ -24,7 +24,7 @@ def get_redis_mutex_lock(lock_name: str, expire: int = 30, auto_renewal: bool = 
 def get_async_redis_mutex_lock(
     lock_name: str,
     expire: int | None = 30,  # timeout
-    sleep: float = 0.1,
+    sleep: float = 1.0,
     blocking: bool = True,
     blocking_timeout: float | None = None,
     lock_class: type[redis_lock.Lock] | None = None,

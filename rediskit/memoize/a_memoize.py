@@ -87,6 +87,7 @@ def a_redis_memoize[T](
     enable_encryption: bool = False,
     storage_type: redis_storage_options = "string",
     connection: Redis | None = None,
+    lock_sleep: float = 1.0,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Caches the result of any function in Redis using either pickle or JSON.
 
@@ -106,7 +107,7 @@ def a_redis_memoize[T](
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs) -> T:
             computed_memoize_key, computed_ttl, tenant_id, lock_name, by_pass_cached_data = get_params(func, memoize_key, ttl, bypass_cache, *args, **kwargs)
-            async with get_async_redis_mutex_lock(lock_name, expire=60):
+            async with get_async_redis_mutex_lock(lock_name, sleep=lock_sleep, expire=60):
                 in_cache = await maybe_data_in_cache(
                     tenant_id,
                     computed_memoize_key,
