@@ -60,3 +60,20 @@ async def set_ttl_for_key(
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
     await conn.expire(node_key, ttl)
+
+
+async def expire(
+    key: str,
+    seconds: int,
+    connection: redis_async.Redis | None = None,
+) -> bool:
+    conn = connection if connection is not None else get_async_redis_connection()
+    return await conn.expire(key, seconds)
+
+
+async def delete(
+    *keys: str,
+    connection: redis_async.Redis | None = None,
+) -> int:
+    conn = connection if connection is not None else get_async_redis_connection()
+    return await conn.delete(*keys)

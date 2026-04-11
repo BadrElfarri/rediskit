@@ -93,7 +93,7 @@ def test_semaphore_expires_on_crash(redis_conn):
     sem2 = semaphore(redis_conn, key, limit=1, lock_ttl=2)
     assert sem1.acquire_blocking()
     # Simulate crash: no ReleaseLock, just delete sem1 ref
-    sem1._stop_ttl_renewal()
+    sem1._stop_ttl_renewal(sem1._get_lease())
     del sem1
     # Wait for TTL to expire in Redis (plus a little slack)
     time.sleep(3)
@@ -287,7 +287,7 @@ def test_semaphore_ttl_renewal(redis_conn):
     assert sem.is_acquired_by_process()
 
     # Now, stop renewal and wait for the lock to expire
-    sem._stop_ttl_renewal()
+    sem._stop_ttl_renewal(sem._get_lease())
     time.sleep(ttl + 1)
     # Should no longer be held
     assert not sem.is_acquired_by_process()

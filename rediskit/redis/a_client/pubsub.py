@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import random
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Dict, Iterable, Set
 
 import redis.asyncio as redis_async
+from redis.asyncio.client import PubSub as _PubSub
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -18,6 +20,30 @@ from rediskit.redis.encoder import _default_decoder, _default_encoder
 Serializer = Callable[[Any], Any]
 
 _QUEUE_STOP = object()
+
+
+def _pubsub_supports_kwarg(name: str) -> bool:
+    """Return True if redis-py's PubSub.__init__ accepts ``name``.
+
+    Older redis-py versions accepted ``health_check_interval`` directly on
+    PubSub; 7.x does not. Probing the signature lets us raise a clean
+    TypeError (which callers can catch to skip/fall back) instead of
+    leaking a half-constructed PubSub whose __del__ then blows up on a
+    missing ``self.connection`` attribute.
+    """
+    try:
+        return name in inspect.signature(_PubSub.__init__).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _make_pubsub_kwargs(health_check_interval: float | None) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"ignore_subscribe_messages": True}
+    if health_check_interval is not None:
+        if not _pubsub_supports_kwarg("health_check_interval"):
+            raise TypeError("redis-py PubSub does not accept health_check_interval in this version")
+        kwargs["health_check_interval"] = health_check_interval
+    return kwargs
 
 
 async def publish(
@@ -96,9 +122,7 @@ async def subscribe_channel(
 
     decoder = decoder or _default_decoder
     connection = connection or get_async_client_for_current_loop()
-    pubsub_kwargs: dict[str, Any] = {"ignore_subscribe_messages": True}
-    if health_check_interval is not None:
-        pubsub_kwargs["health_check_interval"] = health_check_interval
+    pubsub_kwargs = _make_pubsub_kwargs(health_check_interval)
     pubsub = connection.pubsub(**pubsub_kwargs)
 
     try:
@@ -204,9 +228,7 @@ class FanoutBroker:
             with contextlib.suppress(Exception):
                 await self._ps.aclose()
 
-        pubsub_kwargs: dict[str, Any] = {"ignore_subscribe_messages": True}
-        if health_check_interval is not None:
-            pubsub_kwargs["health_check_interval"] = health_check_interval
+        pubsub_kwargs = _make_pubsub_kwargs(health_check_interval)
 
         assert self._client
         self._ps = self._client.pubsub(**pubsub_kwargs)

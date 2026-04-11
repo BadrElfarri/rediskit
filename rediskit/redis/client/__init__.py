@@ -10,7 +10,8 @@ from .json_op import (
     load_cache_from_redis,
     load_exact_cache_from_redis,
 )
-from .keys_op import get_keys, list_keys, set_redis_cache_expiry, set_ttl_for_key
+from .keys_op import delete, expire, get_keys, list_keys, set_redis_cache_expiry, set_ttl_for_key
+from .list_op import drain_list, llen, lpop, lpush, lrange, rpop, rpush
 from .pubsub import publish
 from .readiness import readiness_ping
 from .string_op import dump_blob_to_redis, load_blob_from_redis
@@ -38,6 +39,16 @@ __all__ = (
     "get_keys",
     "set_ttl_for_key",
     "list_keys",
+    "expire",
+    "delete",
+    # --- list / queue operation
+    "rpush",
+    "lpush",
+    "lpop",
+    "rpop",
+    "llen",
+    "lrange",
+    "drain_list",
     # --- pubsub
     "publish",
     # --- readiness
