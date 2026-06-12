@@ -125,7 +125,7 @@ class AsyncSemaphore:
             while not lease.stop_event.is_set():
                 await asyncio.sleep(base * random.uniform(*self.renew_jitter))
 
-                ok = await self.redisConn.eval(_RENEW_LUA, 1, lease.slot_key, lease.holder_id, ttl_ms)
+                ok = await cast(Awaitable[int], self.redisConn.eval(_RENEW_LUA, 1, lease.slot_key, lease.holder_id, ttl_ms))
                 if ok != 1:
                     log.warning("Semaphore lease lost for %s", lease.slot_key)
                     return
@@ -140,12 +140,16 @@ class AsyncSemaphore:
             keys = [self._slot_key(i) for i in range(self.limit)]
             return int(await self.redisConn.exists(*keys))
         except RedisError as e:
-            raise RuntimeError(f"Failed to get active count: {e}")
+            raise RuntimeError(f"Failed to get active count: {e}") from e
 
     async def lock_limit_reached(self) -> bool:
         return (await self.get_active_count()) >= self.limit
 
     async def is_acquired_by_process(self) -> bool:
+        # Leases are scoped to the current task context (ContextVar), so the
+        # same instance may hold one slot per concurrent task. Unlike the sync
+        # Semaphore there is no process_unique_id fallback here: with several
+        # leases per instance, a process_unique_id does not identify one slot.
         lease = self._lease_var.get()
         if not lease:
             return False
@@ -153,15 +157,16 @@ class AsyncSemaphore:
             v = await self.redisConn.get(lease.slot_key)
             return v == lease.holder_id
         except RedisError as e:
-            raise RuntimeError(f"Failed to check semaphore ownership: {e}")
+            raise RuntimeError(f"Failed to check semaphore ownership: {e}") from e
 
     async def get_active_process_unique_ids(self) -> set[str]:
         keys = [self._slot_key(i) for i in range(self.limit)]
         try:
             vals = await cast(Awaitable[list], self.redisConn.mget(*keys))
-            return {v for v in vals if v is not None}
         except RedisError as e:
-            raise RuntimeError(f"Failed to get active process ids: {e}")
+            raise RuntimeError(f"Failed to get active process ids: {e}") from e
+        # Stored value is f"{process_unique_id}:{acquire_uuid}" — strip suffix.
+        return {v.rsplit(":", 1)[0] for v in vals if v is not None}
 
     async def start_ttl_renewal(self) -> None:
         if self.ttl is None:
@@ -199,7 +204,7 @@ class AsyncSemaphore:
 
             return False
         except RedisError as e:
-            raise RuntimeError(f"Failed to acquire semaphore: {e}")
+            raise RuntimeError(f"Failed to acquire semaphore: {e}") from e
 
     async def acquire_blocking(self) -> str:
         if await self.is_acquired_by_process():
@@ -223,6 +228,8 @@ class AsyncSemaphore:
         )
 
     async def release_lock(self) -> None:
+        # Releases only the lease held by the current task context; see
+        # is_acquired_by_process for why there is no process_unique_id fallback.
         lease = self._lease_var.get()
         if not lease:
             return
@@ -231,9 +238,9 @@ class AsyncSemaphore:
             if self.ttl_auto_renewal:
                 await self._stop_ttl_renewal(lease)
 
-            await self.redisConn.eval(_RELEASE_LUA, 1, lease.slot_key, lease.holder_id)
+            await cast(Awaitable[int], self.redisConn.eval(_RELEASE_LUA, 1, lease.slot_key, lease.holder_id))
         except RedisError as e:
-            raise RuntimeError(f"Failed to release semaphore: {e}")
+            raise RuntimeError(f"Failed to release semaphore: {e}") from e
         finally:
             self._lease_var.set(None)
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Awaitable, cast
 
 from redis import asyncio as redis_async
 
@@ -11,7 +11,7 @@ async def rpush(
     connection: redis_async.Redis | None = None,
 ) -> int:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await conn.rpush(key, *values)
+    return await cast(Awaitable[int], conn.rpush(key, *values))
 
 
 async def lpush(
@@ -20,7 +20,7 @@ async def lpush(
     connection: redis_async.Redis | None = None,
 ) -> int:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await conn.lpush(key, *values)
+    return await cast(Awaitable[int], conn.lpush(key, *values))
 
 
 async def lpop(
@@ -30,8 +30,8 @@ async def lpop(
 ) -> Any:
     conn = connection if connection is not None else get_async_redis_connection()
     if count is None:
-        return await conn.lpop(key)
-    return await conn.lpop(key, count)
+        return await cast(Awaitable[Any], conn.lpop(key))
+    return await cast(Awaitable[Any], conn.lpop(key, count))
 
 
 async def rpop(
@@ -41,13 +41,13 @@ async def rpop(
 ) -> Any:
     conn = connection if connection is not None else get_async_redis_connection()
     if count is None:
-        return await conn.rpop(key)
-    return await conn.rpop(key, count)
+        return await cast(Awaitable[Any], conn.rpop(key))
+    return await cast(Awaitable[Any], conn.rpop(key, count))
 
 
 async def llen(key: str, connection: redis_async.Redis | None = None) -> int:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await conn.llen(key)
+    return await cast(Awaitable[int], conn.llen(key))
 
 
 async def lrange(
@@ -57,24 +57,26 @@ async def lrange(
     connection: redis_async.Redis | None = None,
 ) -> list:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await conn.lrange(key, start, end)
+    return await cast(Awaitable[list], conn.lrange(key, start, end))
+
+
+_DRAIN_LUA = """
+local items = redis.call('LRANGE', KEYS[1], 0, -1)
+redis.call('DEL', KEYS[1])
+return items
+"""
 
 
 async def drain_list(
     key: str,
     connection: redis_async.Redis | None = None,
 ) -> list:
-    """Atomically pop every element from the head of the list, in arrival order.
+    """Atomically pop every element from the list, in arrival order.
 
     Useful for inbox/queue patterns where a consumer wants to consume all
-    pending messages in a single pass without risk of double-delivery from
-    concurrent drains.
+    pending messages in a single pass. Runs as a single Lua script, so
+    concurrent drains cannot interleave and each element is delivered
+    exactly once.
     """
     conn = connection if connection is not None else get_async_redis_connection()
-    out: list = []
-    while True:
-        raw = await conn.lpop(key)
-        if raw is None:
-            break
-        out.append(raw)
-    return out
+    return await cast(Awaitable[list], conn.eval(_DRAIN_LUA, 1, key))

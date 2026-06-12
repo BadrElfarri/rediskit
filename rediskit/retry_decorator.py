@@ -2,7 +2,7 @@ import asyncio
 import functools
 import random
 from dataclasses import asdict, dataclass
-from typing import Callable, ParamSpec, TypeVar
+from typing import Any, Awaitable, Callable, ParamSpec, TypeVar, cast
 
 import httpx
 
@@ -13,14 +13,14 @@ R = TypeVar("R")
 @dataclass(frozen=True)
 class RetryPolicy:
     attempts: int = 3
-    backoff: float = 0.5  # initial delay (seconds)
-    jitter: float = 0.1  # +/- seconds (fixed) — see note below
+    backoff: float = 0.5  # initial delay (seconds), doubled after each retry
+    jitter: float = 0.1  # +/- seconds applied to each delay
     exceptions: tuple[type[BaseException], ...] = (httpx.RequestError, httpx.HTTPStatusError)
     enabled: bool = True
     max_backoff: float | None = None  # optional cap
 
 
-def _normalize_policy(default: RetryPolicy, override: "RetryPolicy | dict | None") -> RetryPolicy:
+def _normalize_policy(default: RetryPolicy, override: "RetryPolicy | dict[str, Any] | None") -> RetryPolicy:
     if override is None:
         return default
     if isinstance(override, RetryPolicy):
@@ -39,28 +39,33 @@ def _normalize_policy(default: RetryPolicy, override: "RetryPolicy | dict | None
     return default
 
 
-def retry_async(default: RetryPolicy | None = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    default = default or RetryPolicy()
+def retry_async(default: RetryPolicy | None = None) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
+    """Retry an async function on the policy's exceptions with exponential backoff.
 
-    def deco(fn: Callable[P, R]) -> Callable[P, R]:
+    Callers can override the policy per call by passing a ``retry_policy``
+    keyword argument (a RetryPolicy or a dict of field overrides); it is
+    consumed by the wrapper and not forwarded to the wrapped function.
+    """
+    default_policy = default or RetryPolicy()
+
+    def deco(fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         @functools.wraps(fn)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            policy = _normalize_policy(default, kwargs.pop("retry_policy", None))
+            override = cast("RetryPolicy | dict[str, Any] | None", kwargs.pop("retry_policy", None))
+            policy = _normalize_policy(default_policy, override)
             if not policy.enabled or policy.attempts <= 1:
                 return await fn(*args, **kwargs)
 
             delay = max(0.0, policy.backoff)
-            for attempt in range(1, policy.attempts + 1):
+            for _attempt in range(1, policy.attempts):
                 try:
                     return await fn(*args, **kwargs)
                 except policy.exceptions:
-                    if attempt == policy.attempts:
-                        raise
-                    # fixed jitter around delay; consider decorrelated/full jitter below
                     j = random.uniform(-policy.jitter, policy.jitter) if policy.jitter else 0.0
-                    sleep_for = max(0.0, delay + j)
-                    await asyncio.sleep(sleep_for)
+                    await asyncio.sleep(max(0.0, delay + j))
                     delay = min(delay * 2, policy.max_backoff) if policy.max_backoff else delay * 2
+            # Final attempt: let any exception propagate.
+            return await fn(*args, **kwargs)
 
         return wrapper
 

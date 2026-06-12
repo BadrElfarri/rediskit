@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    services:
+      redis:
+        # Redis 8 bundles the JSON module needed by the json_op helpers
+        # and supports hash-field TTLs (HEXPIRE, 7.4+).
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Test-only key set, not used anywhere outside CI.
+      REDIS_KIT_ENCRYPTION_SECRET: eyJfX2VuY192MSI6ICI4YmU0Y2FlZTkzZTE1ZjE3NjZiNzgyOTBlMWUzNzQyYTdlNTNhZWEyZDZhYjY3ZjliNzRiMmU3OTYzNTBhNDQ2In0=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python-version }}
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy rediskit
+      - name: Tests
+        run: uv run pytest tests/ -q

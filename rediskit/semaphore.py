@@ -6,14 +6,13 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, cast
 
 from redis import RedisError
 
 from rediskit import config
 from rediskit.redis.client.connection import get_redis_connection
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 _RENEW_LUA = """
@@ -69,8 +68,6 @@ class Semaphore:
         self.ttl: int | None = lock_ttl
         self.process_unique_id = str(uuid.uuid4()) if not process_unique_id else process_unique_id
 
-        self.hashKey = f"{self.namespace}:slots"
-
         self.ttl_auto_renewal = bool(ttl_auto_renewal) and (self.ttl is not None)
         self._local = threading.local()
 
@@ -88,16 +85,20 @@ class Semaphore:
 
     def _set_lease(self, lease: Optional[_Lease]) -> None:
         self._local.lease = lease
-        self.hashKey = lease.slot_key if lease else f"{self.namespace}:slots"
+
+    @property
+    def hashKey(self) -> str:
+        lease = self._get_lease()
+        return lease.slot_key if lease else f"{self.namespace}:slots"
 
     # ---- public API ----
 
     def get_active_count(self) -> int:
         try:
             keys = [self._slot_key(i) for i in range(self.limit)]
-            return int(self.redisConn.exists(*keys))
+            return int(cast(int, self.redisConn.exists(*keys)))
         except RedisError as e:
-            raise RuntimeError(f"Failed to get active count: {e}")
+            raise RuntimeError(f"Failed to get active count: {e}") from e
 
     def lock_limit_reached(self) -> bool:
         return self.get_active_count() >= self.limit
@@ -106,9 +107,9 @@ class Semaphore:
         """Scan slots and return (slot_key, holder_id) for this process_unique_id, if any."""
         try:
             keys = [self._slot_key(i) for i in range(self.limit)]
-            vals = self.redisConn.mget(keys)
+            vals = cast(list, self.redisConn.mget(keys))
         except RedisError as e:
-            raise RuntimeError(f"Failed to scan semaphore slots: {e}")
+            raise RuntimeError(f"Failed to scan semaphore slots: {e}") from e
         prefix = f"{self.process_unique_id}:"
         for k, v in zip(keys, vals):
             if v is None:
@@ -124,7 +125,7 @@ class Semaphore:
                 v = self.redisConn.get(lease.slot_key)
                 return v == lease.holder_id
             except RedisError as e:
-                raise RuntimeError(f"Failed to check semaphore ownership: {e}")
+                raise RuntimeError(f"Failed to check semaphore ownership: {e}") from e
         # Lease-less fallback: look up slot by process_unique_id.
         # Supports cross-instance patterns where a process_unique_id is
         # sent over the wire and the receiver wants to check ownership.
@@ -133,9 +134,9 @@ class Semaphore:
     def get_active_process_unique_ids(self) -> set[str]:
         try:
             keys = [self._slot_key(i) for i in range(self.limit)]
-            vals = self.redisConn.mget(keys)
+            vals = cast(list, self.redisConn.mget(keys))
         except RedisError as e:
-            raise RuntimeError(f"Failed to get active process ids: {e}")
+            raise RuntimeError(f"Failed to get active process ids: {e}") from e
         out: set[str] = set()
         for v in vals:
             if v is None:
@@ -197,7 +198,7 @@ class Semaphore:
                     lease = _Lease(holder_id=holder_id, slot_key=k, stop_event=threading.Event(), renew_thread=None)
                     self._set_lease(lease)
 
-                    log.info("Acquired semaphore slot: %s (active=%s/%s)", k, self.get_active_count(), self.limit)
+                    log.debug("Acquired semaphore slot: %s", k)
 
                     if self.ttl_auto_renewal:
                         self._start_ttl_renewal(lease)
@@ -205,16 +206,16 @@ class Semaphore:
 
             return False
         except RedisError as e:
-            raise RuntimeError(f"Failed to acquire semaphore: {e}")
+            raise RuntimeError(f"Failed to acquire semaphore: {e}") from e
 
     def acquire_blocking(self) -> str:
         if self.is_acquired_by_process():
             raise RuntimeError("Semaphore already acquired")
 
-        end_time = time.time() + self.acquireTimeOut
+        end_time = time.monotonic() + self.acquireTimeOut
         backoff = self.backoff_initial
 
-        while time.time() < end_time:
+        while time.monotonic() < end_time:
             if self.acquire_lock():
                 lease = self._get_lease()
                 assert lease is not None
@@ -240,11 +241,11 @@ class Semaphore:
             try:
                 deleted = self.redisConn.eval(_RELEASE_LUA, 1, slot_key, holder_id)
                 if deleted == 1:
-                    log.info("Released semaphore slot (by process_unique_id): %s", slot_key)
+                    log.debug("Released semaphore slot (by process_unique_id): %s", slot_key)
                 else:
                     log.warning("Semaphore slot already lost/expired: %s", slot_key)
             except RedisError as e:
-                raise RuntimeError(f"Failed to release semaphore: {e}")
+                raise RuntimeError(f"Failed to release semaphore: {e}") from e
             return
 
         try:
@@ -253,11 +254,11 @@ class Semaphore:
 
             deleted = self.redisConn.eval(_RELEASE_LUA, 1, lease.slot_key, lease.holder_id)
             if deleted == 1:
-                log.info("Released semaphore slot: %s (active=%s/%s)", lease.slot_key, self.get_active_count(), self.limit)
+                log.debug("Released semaphore slot: %s", lease.slot_key)
             else:
                 log.warning("Semaphore slot already lost/expired: %s", lease.slot_key)
         except RedisError as e:
-            raise RuntimeError(f"Failed to release semaphore: {e}")
+            raise RuntimeError(f"Failed to release semaphore: {e}") from e
         finally:
             self._set_lease(None)
 

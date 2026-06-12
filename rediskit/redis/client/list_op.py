@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from redis import Redis
 
@@ -60,16 +60,21 @@ def lrange(
     return conn.lrange(key, start, end)  # type: ignore[return-value]
 
 
+_DRAIN_LUA = """
+local items = redis.call('LRANGE', KEYS[1], 0, -1)
+redis.call('DEL', KEYS[1])
+return items
+"""
+
+
 def drain_list(
     key: str,
     connection: Redis | None = None,
 ) -> list:
-    """Atomically pop every element from the head of the list, in arrival order."""
+    """Atomically pop every element from the list, in arrival order.
+
+    Runs as a single Lua script, so concurrent drains cannot interleave
+    and each element is delivered exactly once.
+    """
     conn = connection if connection is not None else get_redis_connection()
-    out: list = []
-    while True:
-        raw = conn.lpop(key)
-        if raw is None:
-            break
-        out.append(raw)
-    return out
+    return cast(list, conn.eval(_DRAIN_LUA, 1, key))

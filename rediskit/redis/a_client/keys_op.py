@@ -2,18 +2,19 @@ from typing import AsyncIterator, Callable
 
 from redis import asyncio as redis_async
 
+from rediskit import config
 from rediskit.redis.a_client.connection import get_async_redis_connection
 from rediskit.redis.node import get_redis_top_node
 
 
 async def list_keys(
     tenant_id: str | None,
-    math_key: str,
+    match_key: str,
     count: int = 1_000,
     top_node: Callable = get_redis_top_node,
     connection: redis_async.Redis | None = None,
 ) -> AsyncIterator[str]:
-    pattern = top_node(tenant_id, math_key)
+    pattern = top_node(tenant_id, match_key)
     conn = connection if connection is not None else get_async_redis_connection()
     i = 0
     async for key in conn.scan_iter(match=pattern, count=count):
@@ -44,7 +45,12 @@ async def get_keys(
 ) -> list[str]:
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
-    keys = await conn.keys(node_key)
+    # SCAN instead of KEYS: same result, but does not block Redis on large keyspaces.
+    # SCAN may return duplicates, so dedupe while preserving order.
+    seen: dict[str, None] = {}
+    async for k in conn.scan_iter(match=node_key, count=config.REDIS_SCAN_COUNT):
+        seen[k] = None
+    keys = list(seen)
     if only_last_key:
         keys = [k.split(":")[-1] for k in keys]
     return keys

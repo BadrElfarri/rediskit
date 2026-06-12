@@ -39,7 +39,7 @@ def _make_client(
     timeout: int = 5,
 ) -> redis_async.Redis:
     loop = asyncio.get_running_loop()
-    log.info("Creating new Redis pool redis for event loop id=%s", id(loop))
+    log.info("Creating new Redis client for event loop id=%s", id(loop))
     pool = BlockingConnectionPool(
         host=host,
         port=port,
@@ -109,14 +109,14 @@ def get_async_client_for_current_loop() -> redis_async.Redis:
     slot = _get_or_create_slot_for(loop)
 
     if slot.client is None:
-        raise Exception("Async Redis connection pool is not initialized!")
+        raise RuntimeError("Async Redis connection pool is not initialized! Call init_async_redis_connection_pool() first.")
 
     return slot.client
 
 
 async def close_loop_redis():
     """
-    Close the Redis redis associated with the current loop.
+    Close the Redis client associated with the current loop.
     Useful for graceful shutdown in tests or workers.
     """
     loop = asyncio.get_running_loop()

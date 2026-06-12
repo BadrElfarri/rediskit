@@ -53,7 +53,7 @@ async def publish(
     encoder: Serializer | None = None,
     connection: redis_async.Redis | None = None,
 ) -> int:
-    """Asynchronously publish ``message`` to ``channel`` using the event-loop Redis redis."""
+    """Asynchronously publish ``message`` to ``channel`` using the event-loop Redis client."""
 
     encoder = encoder or _default_encoder
     connection = connection or get_async_client_for_current_loop()
@@ -266,7 +266,7 @@ class FanoutBroker:
             raise
 
     async def _reconnect(self) -> None:
-        """Tear down and re-open redis + pubsub; re-subscribe."""
+        """Tear down and re-open the Redis client + pubsub; re-subscribe."""
         if self._ps is not None:
             with contextlib.suppress(Exception):
                 await self._ps.aclose()

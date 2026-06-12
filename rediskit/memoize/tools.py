@@ -41,7 +41,7 @@ def deserialize_data(
     data: Any,
     cache_type: cache_type_options,
     enable_encryption: bool = False,
-) -> bytes:
+) -> Any:
     if cache_type == "zipPickled":
         cached_data = verify_and_decompress(base64.b64decode(data), lambda b: pickle.loads(b), enable_encryption)
     elif cache_type == "zipJson":
@@ -87,10 +87,10 @@ def compute_value[T](param: T | Callable[..., T], *args, **kwargs) -> T:
 
 def get_params(
     func: Callable, memoize_key: Callable[..., str] | str, ttl: Callable[..., int] | int | None, bypass_cache: Callable[..., bool] | bool, *args, **kwargs
-) -> tuple:
+) -> tuple[str, int | None, str | None, str, bool]:
     def compute_memoize_key(*args, **kwargs) -> str:
         if not (isinstance(memoize_key, str) or callable(memoize_key)):
-            raise ValueError(f"Expected memoizeKey to be Callable or a str. got {type(memoize_key)}")
+            raise ValueError(f"Expected memoize_key to be Callable or a str. got {type(memoize_key)}")
         return compute_value(memoize_key, *args, **kwargs)
 
     def compute_ttl(*args, **kwargs) -> int | None:
@@ -102,7 +102,7 @@ def get_params(
 
     def compute_by_pass_cache(*args, **kwargs) -> bool:
         if not (isinstance(bypass_cache, bool) or callable(bypass_cache)):
-            raise ValueError(f"Expected bypassCache to be Callable or an int. got {type(bypass_cache)}")
+            raise ValueError(f"Expected bypass_cache to be Callable or a bool. got {type(bypass_cache)}")
         return compute_value(bypass_cache, *args, **kwargs)
 
     def compute_tenant_id(wrapped_func: Callable[..., Any], *args, **kwargs) -> str | None:

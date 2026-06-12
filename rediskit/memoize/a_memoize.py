@@ -1,6 +1,6 @@
 import functools
 import logging
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from redis.asyncio import Redis as Redis
 
@@ -9,9 +9,6 @@ from rediskit.redis import a_client
 from rediskit.redis_lock import get_async_redis_mutex_lock
 
 log = logging.getLogger(__name__)
-
-
-# TODO: Update this to use fully async. Have a a_redis_memoize and a normal one. Now both use sync redis connection....Not good!
 
 
 async def maybe_data_in_cache(
@@ -26,7 +23,7 @@ async def maybe_data_in_cache(
     connection: Redis | None = None,
 ) -> Any:
     if by_pass_cached_data:
-        log.info(f"Cache bypassed for tenantId: {tenant_id}, key {computed_memoize_key}")
+        log.debug("Cache bypassed for tenantId: %s, key: %s", tenant_id, computed_memoize_key)
         return None
 
     cached_data = None
@@ -38,7 +35,7 @@ async def maybe_data_in_cache(
             connection=connection,
         )
         if cached:
-            log.info(f"Cache hit tenantId: {tenant_id}, key: {computed_memoize_key}")
+            log.debug("Cache hit tenantId: %s, key: %s", tenant_id, computed_memoize_key)
             cached_data = cached
     elif storage_type == "hash":
         hash_key, field = split_hash_key(computed_memoize_key)
@@ -46,7 +43,7 @@ async def maybe_data_in_cache(
             tenant_id, hash_key, field, set_ttl_on_read=computed_ttl if reset_ttl_upon_read and computed_ttl is not None else None, connection=connection
         )
         if cached_dict and field in cached_dict and cached_dict[field] is not None:
-            log.info(f"HASH cache hit tenantId: {tenant_id}, key: {hash_key}, field: {field}")
+            log.debug("HASH cache hit tenantId: %s, key: %s, field: %s", tenant_id, hash_key, field)
             cached_data = cached_dict[field]
     else:
         raise ValueError(f"Unknown storageType: {storage_type}")
@@ -54,7 +51,7 @@ async def maybe_data_in_cache(
     if cached_data:
         return deserialize_data(cached_data, cache_type, enable_encryption)
     else:
-        log.info(f"No cache found tenantId: {tenant_id}, key: {computed_memoize_key}")
+        log.debug("No cache found tenantId: %s, key: %s", tenant_id, computed_memoize_key)
         return None
 
 
@@ -88,22 +85,25 @@ def a_redis_memoize[T](
     storage_type: redis_storage_options = "string",
     connection: Redis | None = None,
     lock_sleep: float = 1.0,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Caches the result of any function in Redis using either pickle or JSON.
+) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+    """Caches the result of any async function in Redis using either pickle or JSON.
 
-    The decorated function must have 'tenantId' as an arg or kwarg.
+    The decorated function must have 'tenantId' or 'tenant_id' as an arg or kwarg.
 
     Params:
     -------
-    - memoizeKey: Callable computing a memoize key based on wrapped funcs args and kwargs, callable shall define the logic to compute the correct memoize key.
-    - ttl: Time To Live, either fixed value, or callable consuming args+kwargs to return a ttl. Default None, if None no ttl is set.
-    - bypassCache: Don't get data from cache, run wrapped func and update cache. run new values.
-    - cacheType: "zipPickled" Uses pickle for arbitrary Python objects, "zipJson" Uses JSON for data that is JSON serializable.
-    - resetTtlUponRead: Set the ttl to the initial value upon reading the value from redis cache
-    - connection: Custom Redis connection to use instead of the default connection pool
+    - memoize_key: Cache key, either a fixed string or a callable computing the key from the wrapped func's args and kwargs.
+    - ttl: Time To Live in seconds, either a fixed value or a callable consuming args+kwargs. Default None; if None no ttl is set.
+    - bypass_cache: Skip the cache lookup (bool or callable); the wrapped func runs and its result updates the cache.
+    - cache_type: "zipPickled" uses pickle for arbitrary Python objects, "zipJson" uses JSON for JSON-serializable data.
+    - reset_ttl_upon_read: Reset the ttl to the initial value upon reading the value from the cache.
+    - enable_encryption: Encrypt the cached payload (requires REDIS_KIT_ENCRYPTION_SECRET).
+    - storage_type: "string" stores one key per entry, "hash" stores the entry as a hash field (memoize key must contain ':').
+    - connection: Custom Redis connection to use instead of the default connection pool.
+    - lock_sleep: Seconds between attempts to acquire the per-key mutex.
     """
 
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs) -> T:
             computed_memoize_key, computed_ttl, tenant_id, lock_name, by_pass_cached_data = get_params(func, memoize_key, ttl, bypass_cache, *args, **kwargs)
@@ -121,11 +121,11 @@ def a_redis_memoize[T](
                 )
                 if in_cache is not None:
                     return in_cache
-                result = await func(*args, **kwargs)  # type: ignore # need to fix this
+                result = await func(*args, **kwargs)
                 if result is not None:
                     await dump_data(result, tenant_id, computed_memoize_key, cache_type, computed_ttl, enable_encryption, storage_type, connection)
                 return result
 
-        return async_wrapper  # type: ignore # need to fix this
+        return async_wrapper
 
     return decorator

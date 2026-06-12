@@ -2,7 +2,7 @@ from typing import Callable, cast
 
 import redis
 
-from rediskit.redis.client import get_redis_connection
+from rediskit.redis.client.connection import get_redis_connection
 from rediskit.redis.node import get_redis_top_node
 
 

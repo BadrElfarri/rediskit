@@ -26,21 +26,22 @@ def dump_cache_to_redis(
 
 
 def dump_multiple_payload_to_redis(
-    tenant_id: str | None, payloads_and_keys: list[dict[str, Any]], ttl: int | None = None, top_node: Callable[..., str] = get_redis_top_node
+    tenant_id: str | None,
+    payloads_and_keys: list[dict[str, Any]],
+    ttl: int | None = None,
+    top_node: Callable[..., str] = get_redis_top_node,
+    connection: Redis | None = None,
 ) -> None:
     if tenant_id is None:
-        raise Exception("Tenant or key is missing!")
+        raise ValueError("tenant_id is missing!")
     if len(payloads_and_keys) == 0:
         return
 
+    connection = connection if connection is not None else get_redis_connection()
     for payload_and_key in payloads_and_keys:
         if "key" not in payload_and_key or "payload" not in payload_and_key:
-            raise Exception("Key or payload is missing!")
-        key = payload_and_key["key"]
-        payload = payload_and_key["payload"]
-        dump_cache_to_redis(tenant_id, key, payload, top_node=top_node)
-        if ttl is not None:
-            set_redis_cache_expiry(tenant_id, key, expiry=ttl, top_node=top_node)
+            raise ValueError("Key or payload is missing!")
+        dump_cache_to_redis(tenant_id, payload_and_key["key"], payload_and_key["payload"], ttl=ttl, top_node=top_node, connection=connection)
 
 
 def load_cache_from_redis(
@@ -54,8 +55,11 @@ def load_cache_from_redis(
     connection = connection if connection is not None else get_redis_connection()
     keys = connection.scan_iter(match=node_match, count=count)
     for key in keys:
-        payload = json.loads(connection.execute_command("JSON.GET", key))
-        payloads.append(payload)
+        raw = connection.execute_command("JSON.GET", key)
+        if raw is None:
+            # Key expired or was deleted between SCAN and GET.
+            continue
+        payloads.append(json.loads(raw))
     return payloads
 
 
@@ -66,10 +70,8 @@ def load_exact_cache_from_redis(
     if config.REDIS_SKIP_CACHING:
         return None
     connection = connection if connection is not None else get_redis_connection()
-    if connection.exists(node_match):
-        payload = json.loads(connection.execute_command("JSON.GET", node_match))
-        return payload
-    return None
+    raw = connection.execute_command("JSON.GET", node_match)
+    return json.loads(raw) if raw is not None else None
 
 
 def delete_cache_from_redis(tenant_id: str | None, match: str, connection: Redis | None = None) -> None:

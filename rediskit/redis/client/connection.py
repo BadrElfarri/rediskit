@@ -16,7 +16,7 @@ def init_redis_connection_pool() -> None:
 
 def get_redis_connection() -> Redis:
     if redis_connection_pool is None:
-        raise Exception("Redis connection pool is not initialized!")
+        raise RuntimeError("Redis connection pool is not initialized! Call init_redis_connection_pool() first.")
     return Redis(connection_pool=redis_connection_pool)
 
 

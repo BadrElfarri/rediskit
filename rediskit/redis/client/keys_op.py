@@ -2,6 +2,7 @@ from typing import Callable, Iterator
 
 from redis import Redis
 
+from rediskit import config
 from rediskit.redis.client.connection import get_redis_connection
 from rediskit.redis.node import get_redis_top_node
 
@@ -19,10 +20,12 @@ def get_keys(
 ) -> list[str]:
     node_key = top_node(tenant_id, key)
     connection = connection if connection is not None else get_redis_connection()
-    keys = connection.keys(node_key)  # type: ignore # fix later
+    # SCAN instead of KEYS: same result, but does not block Redis on large keyspaces.
+    # SCAN may return duplicates, so dedupe while preserving order.
+    keys: list[str] = list(dict.fromkeys(connection.scan_iter(match=node_key, count=config.REDIS_SCAN_COUNT)))
     if only_last_key:
-        keys = [k.split(":")[-1] for k in keys]  # type: ignore # fix later
-    return keys  # type: ignore # fix later
+        keys = [k.split(":")[-1] for k in keys]
+    return keys
 
 
 def set_ttl_for_key(
@@ -52,12 +55,12 @@ def delete(
 
 def list_keys(
     tenant_id: str | None,
-    math_key: str,
+    match_key: str,
     count: int = 1_000,
     top_node: Callable = get_redis_top_node,
     connection: Redis | None = None,
 ) -> Iterator[str]:
-    pattern = top_node(tenant_id, math_key)
+    pattern = top_node(tenant_id, match_key)
     conn = connection if connection is not None else get_redis_connection()
     for i, key in enumerate(conn.scan_iter(match=pattern, count=count)):
         if i >= 10_000:

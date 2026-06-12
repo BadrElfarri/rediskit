@@ -56,6 +56,7 @@ __all__ = (
     # --- string operation
     "load_blob_from_redis",
     "dump_blob_to_redis",
+    # --- counter operation
     "counter",
     "counter_value",
 )

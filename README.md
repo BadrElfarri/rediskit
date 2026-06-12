@@ -100,20 +100,23 @@ def get_dynamic_data(tenantId: str, priority: str, force_refresh: bool = False) 
 
 ```python
 import asyncio
-from rediskit import redis_memoize, init_async_redis_connection_pool
-
-# Initialize async Redis connection pool
-await init_async_redis_connection_pool()
+from rediskit import a_redis_memoize, init_async_redis_connection_pool
 
 
-@redis_memoize(memoize_key="async_calc", ttl=300)
+# Use a_redis_memoize for async functions
+@a_redis_memoize(memoize_key="async_calc", ttl=300)
 async def async_expensive_function(tenantId: str, value: int) -> dict:
     await asyncio.sleep(1)  # Simulate async work
     return {"async_result": value * 100}
 
 
-# Usage
-result = await async_expensive_function("tenant1", 5)
+async def main() -> None:
+    # Initialize async Redis connection pool (once per event loop)
+    await init_async_redis_connection_pool()
+    result = await async_expensive_function("tenant1", 5)
+
+
+asyncio.run(main())
 ```
 
 ### Distributed Locking
@@ -147,51 +150,55 @@ decrypted = encrypter.decrypt(encrypted)
 
 ## Configuration
 
-Configure rediskit using environment variables:
+Configure rediskit using environment variables (loaded from `.env` / `private.env` if present):
 
 ```bash
 # Redis connection settings
-export REDISKIT_REDIS_HOST="localhost"
-export REDISKIT_REDIS_PORT="6379"
-export REDISKIT_REDIS_PASSWORD=""
+export REDIS_HOST="localhost"
+export REDIS_PORT="6379"
+export REDIS_PASSWORD=""
 
-# Encryption keys (base64-encoded JSON)
-export REDISKIT_ENCRYPTION_SECRET="eyJfX2VuY192MSI6ICI0MGViODJlNWJhNTJiNmQ4..."
+# Encryption keys (base64-encoded JSON, e.g. produced by Encrypter.encode_keys_dict_to_base64)
+export REDIS_KIT_ENCRYPTION_SECRET="eyJfX2VuY192MSI6ICI0MGViODJlNWJhNTJiNmQ4..."
 
 # Cache settings
-export REDISKIT_REDIS_TOP_NODE="my_app_cache"
-export REDISKIT_REDIS_SKIP_CACHING="false"
+export REDIS_TOP_NODE="my_app_cache"      # key prefix, default "redis_kit_node"
+export REDIS_SKIP_CACHING="false"         # short-circuit cache reads
+export REDIS_SCAN_COUNT="10000"           # SCAN batch size hint
 ```
 
 ## API Reference
 
 ### Core Decorators
 
-#### `@RedisMemoize`
+#### `@redis_memoize` / `@a_redis_memoize`
 
-Cache function results in Redis with configurable options.
+Cache function results in Redis with configurable options. Use `redis_memoize` for sync functions and `a_redis_memoize` for async functions.
 
 **Parameters:**
-- `memoizeKey`: Cache key (string or callable)
+- `memoize_key`: Cache key (string or callable)
 - `ttl`: Time to live in seconds (int, callable, or None)
-- `bypassCache`: Skip cache lookup (bool or callable)
-- `cacheType`: Serialization method ("zipJson" or "zipPickled")
-- `resetTtlUponRead`: Refresh TTL when reading from cache
-- `enableEncryption`: Encrypt cached data
-- `storageType`: Redis storage pattern ("string" or "hash")
+- `bypass_cache`: Skip cache lookup (bool or callable)
+- `cache_type`: Serialization method ("zipJson" or "zipPickled")
+- `reset_ttl_upon_read`: Refresh TTL when reading from cache
+- `enable_encryption`: Encrypt cached data
+- `storage_type`: Redis storage pattern ("string" or "hash")
 - `connection`: Custom Redis connection (optional)
+- `lock_sleep` (`a_redis_memoize` only): Seconds between mutex acquisition attempts
 
 ### Connection Management
 
 - `init_redis_connection_pool()`: Initialize sync Redis connection pool
-- `init_async_redis_connection_pool()`: Initialize async Redis connection pool
+- `init_async_redis_connection_pool()`: Initialize async Redis connection pool (per event loop)
 - `get_redis_connection()`: Get sync Redis connection
 - `get_async_redis_connection()`: Get async Redis connection
+- `close()` / `async_connection_close()`: Tear down the sync / async pool
 
-### Distributed Locking
+### Distributed Coordination
 
-- `GetRedisMutexLock(name, expire, auto_renewal, id)`: Get sync distributed lock
-- `GetAsyncRedisMutexLock(name, expire, auto_renewal)`: Get async distributed lock
+- `get_redis_mutex_lock(lock_name, expire, auto_renewal, id)`: Get sync distributed lock
+- `get_async_redis_mutex_lock(lock_name, expire, sleep, blocking, blocking_timeout, ...)`: Get async distributed lock
+- `Semaphore` / `AsyncSemaphore`: Distributed semaphore limiting concurrent holders across processes
 
 ### Encryption
 
@@ -200,8 +207,8 @@ Cache function results in Redis with configurable options.
 ## Requirements
 
 - Python 3.12+
-- Redis server
-- Dependencies: redis, redis-lock, nacl, zstd
+- Redis server (RedisJSON module required for the JSON cache helpers, hash-field TTLs require Redis 7.4+)
+- Dependencies: redis, python-redis-lock, pynacl, zstd, httpx, python-dotenv
 
 ## License
 Apache-2.0 license

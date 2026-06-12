@@ -6,10 +6,13 @@ import logging
 import uuid
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 
 def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
     if not keys_base64:
-        logging.error("No keys_base64 provided")
+        # Not configured — fine for users who don't need encryption.
+        log.debug("No keys_base64 provided")
         return {}
     try:
         # Decode from base64 to a JSON string, then load it into a dict
@@ -17,7 +20,7 @@ def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
         decoded = json.loads(decodedJson)
         return decoded
     except Exception:
-        logging.error("No keys_base64 provided")
+        log.exception("Failed to decode keys_base64 as base64-encoded JSON")
 
     return {}
 

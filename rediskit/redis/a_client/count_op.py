@@ -2,7 +2,7 @@ from typing import Awaitable, Callable, cast
 
 from redis import asyncio as redis_async
 
-from rediskit.redis.a_client import get_async_redis_connection
+from rediskit.redis.a_client.connection import get_async_redis_connection
 from rediskit.redis.node import get_redis_top_node
 
 

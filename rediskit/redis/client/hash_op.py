@@ -30,7 +30,8 @@ def h_set_cache_to_redis(
     # Create a mapping with JSON-serialized values
     mapping: dict[str | bytes, bytes | float | int | str]
     if enable_encryption:
-        mapping = {field: Encrypter().encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
+        encrypter = Encrypter()
+        mapping = {field: encrypter.encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
     else:
         mapping = {field: json.dumps(value) for field, value in fields.items()}
     connection.hset(node_key, mapping=mapping)
@@ -70,7 +71,8 @@ def h_get_cache_from_redis(
         connection.hexpire(node_key, set_ttl_on_read, *data.keys())  # type: ignore  # hexpire do exist in new redis version
 
     if is_encrypted:
-        result = {k: json.loads(Encrypter().decrypt(v)) for k, v in data.items() if v is not None}
+        encrypter = Encrypter()
+        result = {k: json.loads(encrypter.decrypt(v)) for k, v in data.items() if v is not None}
     else:
         result = {k: json.loads(v) for k, v in data.items() if v is not None}
 

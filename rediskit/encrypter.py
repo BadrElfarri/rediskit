@@ -14,14 +14,26 @@ class Encrypter:
     VERSION_PREFIX = "__enc_v"
 
     # EncryptedCompressedBase64Box
-    def __init__(self, keyHexDict: dict[str, str] = config.REDIS_KIT_ENCRYPTION_SECRET) -> None:
+    def __init__(self, keyHexDict: dict[str, str] | None = None) -> None:
         """
-        keysBase64 shall have the following format {"__enc_v1": "32-byte key"...,"__enc_vn": ...}
+        keyHexDict shall have the following format {"__enc_v1": "32-byte hex key"...,"__enc_vn": ...}.
+        Defaults to the keys decoded from the REDIS_KIT_ENCRYPTION_SECRET environment variable.
         """
         if keyHexDict is None:
-            raise Exception("REDIS_KIT_ENCRYPTION_SECRET cannot be None")
+            keyHexDict = config.REDIS_KIT_ENCRYPTION_SECRET
+        if not keyHexDict:
+            raise ValueError("No encryption keys available: set REDIS_KIT_ENCRYPTION_SECRET or pass keyHexDict explicitly")
         self.encryptionKeys = keyHexDict
-        self.latestVersion = list(self.encryptionKeys.keys())[-1]
+        self.latestVersion = self._find_latest_version(keyHexDict)
+
+    @staticmethod
+    def _find_latest_version(keyHexDict: dict[str, str]) -> str:
+        try:
+            # Pick the highest version number so key order in the dict doesn't matter.
+            return max(keyHexDict, key=Encrypter.get_encryption_key_version_number)
+        except ValueError:
+            # Non-standard version names: fall back to the last inserted key.
+            return list(keyHexDict)[-1]
 
     def _getSecretBox(self, version: str) -> secret.SecretBox:
         hexKey = self.encryptionKeys.get(version)
@@ -114,7 +126,7 @@ class Encrypter:
         if not dataBytes.startswith(Encrypter.VERSION_PREFIX.encode()) or b":" not in dataBytes:
             return False
         if raiseIfEncrypted:
-            raise Exception("The data is already encrypted")
+            raise ValueError("The data is already encrypted")
         return True
 
     @staticmethod

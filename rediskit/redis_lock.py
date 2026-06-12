@@ -56,5 +56,5 @@ async def nonblocking_mutex(name: str, **lock_kwargs):
     try:
         yield True
     finally:
-        with suppress(Exception, getattr(redis_lock, "NotAcquired", Exception)):
+        with suppress(Exception):
             await lock.release()

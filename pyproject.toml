@@ -21,14 +21,17 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
 ]
-dependencies = [ # Encryption, hashing, and SSL/TLS utilities
+dependencies = [
     "pynacl", # Modern cryptographic library, used for Encryption
     "redis", # Redis client for caching, messaging, or storage
     "python-redis-lock", # Distributed locking mechanism using Redis
     "zstd", # Compression and decompression using Zstandard
-    "httpx", # Async HTTP client for making API requests
-    "dotenv", # Load environment variables from a .env file
+    "httpx", # Default retry exceptions in retry_decorator target httpx errors
+    "python-dotenv", # Load environment variables from a .env file
 ]
 
 [dependency-groups]
@@ -53,10 +56,6 @@ Changelog = "https://github.com/badrelfarri/rediskit/blob/main/CHANGELOG.md"
 
 [tool.setuptools.package-data]
 rediskit = ["py.typed"]
-
-[tool.isort]
-line_length = 999
-multi_line_output = 5
 
 [tool.ruff]
 line-length = 160
@@ -87,22 +86,7 @@ exclude = [
 [tool.ruff.lint]
 ignore = ["E501"]
 
-[tool.ruff.lint.per-file-ignores]
-"config.py" = ["E501"]
-"app.py" = ["E402"]
-"env.py" = ["E402"]
-"migrate.py" = ["E722"]
-"test_multi_document_agent.py" = ["E402", "F811"]
-
 [tool.mypy]
 exclude = "build/"
 ignore_missing_imports = true
 plugins = []
-
-# MYPY: Ignore modules that are still failing
-[[tool.mypy.overrides]]
-module = [
-    "rediskit.retry_decorator.*",
-]
-ignore_missing_imports = true
-ignore_errors = true
