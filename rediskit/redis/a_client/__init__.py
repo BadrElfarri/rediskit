@@ -14,6 +14,7 @@ from .keys_op import delete, expire, get_keys, list_keys, set_redis_cache_expiry
 from .list_op import drain_list, llen, lpop, lpush, lrange, rpop, rpush
 from .pubsub import ChannelSubscription, FanoutBroker, iter_channel, publish, subscribe_channel
 from .readiness import readiness_ping
+from .sentinel import build_sentinel_master_client, parse_sentinel_hosts
 from .string_op import dump_blob_to_redis, load_blob_from_redis
 
 __all__ = (
@@ -58,6 +59,9 @@ __all__ = (
     "FanoutBroker",
     # --- readiness
     "readiness_ping",
+    # --- sentinel (async HA master discovery)
+    "build_sentinel_master_client",
+    "parse_sentinel_hosts",
     # --- string operation
     "load_blob_from_redis",
     "dump_blob_to_redis",

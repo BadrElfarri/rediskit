@@ -119,6 +119,67 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+### High Availability with Redis Sentinel (async)
+
+When your Redis runs behind Sentinel (1 master + replicas, with automatic
+failover), a plain client will keep writing to a node that gets demoted to a
+read-only replica during a failover — surfacing as
+`ReadOnlyError: You can't write against a read only replica`. Enable Sentinel so
+the **async** client discovers the current master on every reconnect and retries
+transparently through a failover:
+
+```bash
+export REDIS_SENTINEL_ENABLED="true"
+export REDIS_SENTINEL_HOSTS="sentinel-a:26379,sentinel-b:26379,sentinel-c:26379"
+export REDIS_SENTINEL_MASTER_NAME="myMaster"   # Sentinel's monitored master name
+export REDIS_PASSWORD="<data-node password>"   # authenticates the master/replicas
+# export REDIS_SENTINEL_PASSWORD="..."         # only if your sentinels require auth
+```
+
+No code change is required — `init_async_redis_connection_pool()` and every
+capability built on it (locks, pub/sub, memoize, semaphores, counters, all ops)
+automatically route through the Sentinel-managed master:
+
+```python
+from rediskit import init_async_redis_connection_pool, get_async_redis_mutex_lock
+
+await init_async_redis_connection_pool()   # builds a Sentinel-managed client when enabled
+async with get_async_redis_mutex_lock("critical_section", expire=30):
+    ...  # writes always land on the current master, even after a failover
+```
+
+A single `host:port` that resolves to all sentinels (e.g. a Kubernetes Service
+DNS name) is also valid for `REDIS_SENTINEL_HOSTS`. The sync client is
+unaffected by these settings.
+
+#### Testing against a local Sentinel
+
+[`docker-compose.sentinel.yml`](docker-compose.sentinel.yml) brings up a real
+1-master + 1-replica + 1-sentinel topology and a `test` runner that executes the
+suite **inside the docker network** — required because Sentinel hands clients the
+`redis` / `redis-replica` hostnames it announces, which only resolve there (not
+from your host shell). Because every async op funnels through one client, this
+runs the whole async suite through the Sentinel-managed master:
+
+```bash
+# Run the Sentinel integration suite (every capability + broadcast, through Sentinel):
+PYTEST_TARGET=tests/test_sentinel_integration.py \
+  docker compose -f docker-compose.sentinel.yml run --rm test
+
+# Or the entire suite through Sentinel (default PYTEST_TARGET=tests/):
+docker compose -f docker-compose.sentinel.yml run --rm test
+
+# Transparent-failover test — then, in another shell, kill the master:
+#   docker compose -f docker-compose.sentinel.yml stop redis
+REDISKIT_SENTINEL_FAILOVER=1 PYTEST_TARGET=tests/test_sentinel_integration.py \
+  docker compose -f docker-compose.sentinel.yml run --rm test
+
+docker compose -f docker-compose.sentinel.yml down -v   # tear down
+```
+
+`tests/test_sentinel_integration.py` skips unless `REDIS_SENTINEL_ENABLED=true`,
+so the default `pytest tests/` (single Redis, no Sentinel) is unaffected.
+
 ### Distributed Locking
 
 ```python
@@ -157,6 +218,14 @@ Configure rediskit using environment variables (loaded from `.env` / `private.en
 export REDIS_HOST="localhost"
 export REDIS_PORT="6379"
 export REDIS_PASSWORD=""
+
+# Sentinel (async high-availability master discovery; sync client unaffected)
+export REDIS_SENTINEL_ENABLED="false"          # set "true" to route the async client via Sentinel
+export REDIS_SENTINEL_HOSTS=""                 # "host-a:26379,host-b:26379" (bare host uses REDIS_SENTINEL_PORT)
+export REDIS_SENTINEL_PORT="26379"             # default port for bare hosts above
+export REDIS_SENTINEL_MASTER_NAME="myMaster"   # Sentinel's monitored master name
+export REDIS_SENTINEL_PASSWORD=""              # only if your sentinels themselves require auth
+export REDIS_KIT_RETRY_ATTEMPTS="10"           # transparent retries per command (covers the failover window)
 
 # Encryption keys (base64-encoded JSON, e.g. produced by Encrypter.encode_keys_dict_to_base64)
 export REDIS_KIT_ENCRYPTION_SECRET="eyJfX2VuY192MSI6ICI0MGViODJlNWJhNTJiNmQ4..."

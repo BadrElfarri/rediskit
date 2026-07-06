@@ -10,6 +10,7 @@ import redis.asyncio as redis_async
 from redis.asyncio import BlockingConnectionPool
 
 from rediskit import config
+from rediskit.redis.a_client.sentinel import build_sentinel_master_client
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,20 @@ def _make_client(
     timeout: int = 5,
 ) -> redis_async.Redis:
     loop = asyncio.get_running_loop()
+
+    if config.REDIS_SENTINEL_ENABLED:
+        log.info("Creating Sentinel-managed Redis master client for event loop id=%s", id(loop))
+        return build_sentinel_master_client(
+            password=password,
+            decode_responses=decode_responses,
+            socket_timeout=socket_timeout,
+            socket_connect_timeout=socket_connect_timeout,
+            socket_keepalive=socket_keepalive,
+            health_check_interval=health_check_interval,
+            max_connections=max_connections,
+            timeout=timeout,
+        )
+
     log.info("Creating new Redis client for event loop id=%s", id(loop))
     pool = BlockingConnectionPool(
         host=host,

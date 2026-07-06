@@ -4,6 +4,7 @@ from redis import asyncio as redis_async
 
 from rediskit import config
 from rediskit.redis.a_client.redis_in_eventloop import close_loop_redis, get_async_client_for_current_loop, get_async_redis_connection_in_eventloop
+from rediskit.redis.a_client.sentinel import build_sentinel_master_client
 
 
 async def init_async_redis_connection_pool(
@@ -36,6 +37,16 @@ async def init_async_redis_connection_pool(
 
 @asynccontextmanager
 async def redis_single_connection_context():
+    if config.REDIS_SENTINEL_ENABLED:
+        # Sentinel-managed client owns its pool; it follows failovers like the
+        # shared client does. Keep it to a single connection for parity.
+        client = build_sentinel_master_client(decode_responses=True, max_connections=1)
+        try:
+            yield client
+        finally:
+            await client.aclose()
+        return
+
     pool = redis_async.ConnectionPool(
         host=config.REDIS_HOST,
         port=config.REDIS_PORT,
