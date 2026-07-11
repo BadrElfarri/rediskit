@@ -14,6 +14,7 @@ from .keys_op import delete, expire, get_keys, list_keys, set_redis_cache_expiry
 from .list_op import drain_list, llen, lpop, lpush, lrange, rpop, rpush
 from .pubsub import publish
 from .readiness import readiness_ping
+from .sentinel import build_sentinel_master_pool, close_sentinel_monitor_clients
 from .string_op import dump_blob_to_redis, load_blob_from_redis
 
 __all__ = (
@@ -53,6 +54,9 @@ __all__ = (
     "publish",
     # --- readiness
     "readiness_ping",
+    # --- sentinel (sync HA master discovery)
+    "build_sentinel_master_pool",
+    "close_sentinel_monitor_clients",
     # --- string operation
     "load_blob_from_redis",
     "dump_blob_to_redis",

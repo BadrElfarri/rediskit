@@ -119,14 +119,14 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-### High Availability with Redis Sentinel (async)
+### High Availability with Redis Sentinel
 
 When your Redis runs behind Sentinel (1 master + replicas, with automatic
 failover), a plain client will keep writing to a node that gets demoted to a
 read-only replica during a failover — surfacing as
 `ReadOnlyError: You can't write against a read only replica`. Enable Sentinel so
-the **async** client discovers the current master on every reconnect and retries
-transparently through a failover:
+**both the sync and async** clients discover the current master on every
+reconnect and retry transparently through a failover:
 
 ```bash
 export REDIS_SENTINEL_ENABLED="true"
@@ -136,9 +136,10 @@ export REDIS_PASSWORD="<data-node password>"   # authenticates the master/replic
 # export REDIS_SENTINEL_PASSWORD="..."         # only if your sentinels require auth
 ```
 
-No code change is required — `init_async_redis_connection_pool()` and every
-capability built on it (locks, pub/sub, memoize, semaphores, counters, all ops)
-automatically route through the Sentinel-managed master:
+No code change is required — `init_async_redis_connection_pool()` /
+`init_redis_connection_pool()` and every capability built on them (locks,
+pub/sub, memoize, semaphores, counters, all ops) automatically route through
+the Sentinel-managed master:
 
 ```python
 from rediskit import init_async_redis_connection_pool, get_async_redis_mutex_lock
@@ -149,8 +150,7 @@ async with get_async_redis_mutex_lock("critical_section", expire=30):
 ```
 
 A single `host:port` that resolves to all sentinels (e.g. a Kubernetes Service
-DNS name) is also valid for `REDIS_SENTINEL_HOSTS`. The sync client is
-unaffected by these settings.
+DNS name) is also valid for `REDIS_SENTINEL_HOSTS`.
 
 #### Testing against a local Sentinel
 
@@ -158,8 +158,8 @@ unaffected by these settings.
 1-master + 1-replica + 1-sentinel topology and a `test` runner that executes the
 suite **inside the docker network** — required because Sentinel hands clients the
 `redis` / `redis-replica` hostnames it announces, which only resolve there (not
-from your host shell). Because every async op funnels through one client, this
-runs the whole async suite through the Sentinel-managed master:
+from your host shell). Because every op funnels through the shared clients, this
+runs the whole suite (sync and async) through the Sentinel-managed master:
 
 ```bash
 # Run the Sentinel integration suite (every capability + broadcast, through Sentinel):

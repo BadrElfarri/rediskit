@@ -7,7 +7,7 @@ import pytest_asyncio
 
 from rediskit.redis import get_redis_top_node
 from rediskit.redis.a_client import get_async_redis_connection
-from rediskit.redis.a_client.connection import init_async_redis_connection_pool
+from rediskit.redis.a_client.connection import async_connection_close, init_async_redis_connection_pool
 
 TEST_TENANT_ID = "TEST_LOCK_POOL_TIMEOUT"
 
@@ -94,15 +94,21 @@ async def test_lock_pool_exhaustion_waits_then_succeeds():
 @pytest.mark.asyncio
 async def test_pool_timeout_5s_is_enforced_when_connection_never_frees():
     """
-    Proves the pool timeout (~5s) is enforced: if no connection becomes available,
-    an operation that needs a connection will fail after ~5 seconds (not immediately).
+    Proves the pool wait (`timeout`) is enforced: if no connection becomes
+    available, an operation that needs a connection fails after the configured
+    wait (not immediately). The default is 20s (sized to cover the Sentinel
+    failover retry budget); pin an explicit 5s here to keep the test fast.
 
     Strategy:
     - Occupy all pool connections with long BLPOPs (longer than 5s).
     - Then attempt to acquire a lock which needs a connection from the pool.
     - Expect failure around 5s (pool timeout), not instant 'Too many connections'.
     """
-    await init_async_redis_connection_pool()
+    # The autouse fixture already initialized the shared loop client with
+    # default settings, and init is a no-op on an initialized loop — rebuild
+    # the client so the explicit 5s pool wait actually applies.
+    await async_connection_close()
+    await init_async_redis_connection_pool(timeout=5)
     r = get_async_redis_connection()
 
     key = _lock_key()

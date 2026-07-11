@@ -1,11 +1,12 @@
-"""Live integration test: every async capability through the Sentinel client.
+"""Live integration test: every capability through the Sentinel client.
 
-Unlike ``test_sentinel_async.py`` (which asserts wiring only, no connection), this
-suite runs the *real* operations a service makes — cache, hash, list/queue,
-counters, key TTLs, distributed mutex locks, semaphores, memoize, and the
-pub/sub broadcast (publish + subscribe_channel + FanoutBroker) — against a live
-Sentinel-managed master. It first asserts the client really is Sentinel-managed,
-so every subsequent op is proven to flow through Sentinel.
+Unlike ``test_sentinel_async.py`` / ``test_sentinel_sync.py`` (which assert
+wiring only, no connection), this suite runs the *real* operations a service
+makes — cache, hash, list/queue, counters, key TTLs, distributed mutex locks,
+semaphores, memoize, and the pub/sub broadcast (publish + subscribe_channel +
+FanoutBroker) — against a live Sentinel-managed master, for BOTH the async and
+the sync client. It first asserts each client really is Sentinel-managed, so
+every subsequent op is proven to flow through Sentinel.
 
 RUN IT against a live topology (e.g. the revvue-services redis stack) with:
 
@@ -20,11 +21,14 @@ master/replica hostnames resolve (i.e. inside the same docker network).
 """
 
 import asyncio
+import contextlib
 import os
+import time
 
 import pytest
 import pytest_asyncio
 from redis.asyncio.sentinel import SentinelConnectionPool
+from redis.sentinel import SentinelConnectionPool as SyncSentinelConnectionPool
 
 from rediskit import config
 from rediskit.async_semaphore import AsyncSemaphore
@@ -53,7 +57,9 @@ from rediskit.redis.a_client import (
     set_ttl_for_key,
     subscribe_channel,
 )
-from rediskit.redis_lock import get_async_redis_mutex_lock, nonblocking_mutex
+from rediskit.redis.client import get_redis_connection, init_redis_connection_pool
+from rediskit.redis_lock import get_async_redis_mutex_lock, get_redis_mutex_lock, nonblocking_mutex
+from rediskit.semaphore import Semaphore
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -209,17 +215,69 @@ async def test_readiness_ping():
     assert await readiness_ping() is True
 
 
+# ---------------------------------------------------------------------------
+# Sync client through Sentinel — the sync mutex lock is the exact op class that
+# threw READONLY in prod, so it gets the same live proof as the async side.
+# ---------------------------------------------------------------------------
+
+
+async def test_sync_client_is_sentinel_managed():
+    """Prove the sync shared pool is Sentinel-managed — the sync ops below ride it."""
+    init_redis_connection_pool()
+    conn = get_redis_connection()
+    pool = conn.connection_pool
+    assert isinstance(pool, SyncSentinelConnectionPool), f"expected SentinelConnectionPool, got {type(pool).__name__}"
+    assert pool.is_master is True
+    assert pool.service_name == config.REDIS_SENTINEL_MASTER_NAME
+    # and it can actually reach the master
+    assert conn.ping() is True
+
+
+async def test_sync_mutex_lock_write():
+    init_redis_connection_pool()
+    lock = get_redis_mutex_lock(f"{TAG}-sync-lock", expire=10, auto_renewal=False)
+    assert lock.acquire(blocking=True) is True
+    try:
+        get_redis_connection().set(get_redis_top_node(TENANT, f"{TAG}-sync-guarded"), "written-under-sync-lock")
+    finally:
+        lock.release()
+
+
+async def test_sync_semaphore_limit():
+    init_redis_connection_pool()
+    a = Semaphore(f"{TAG}-sync-sem", limit=2, acquire_timeout=3, lock_ttl=15)
+    b = Semaphore(f"{TAG}-sync-sem", limit=2, acquire_timeout=3, lock_ttl=15)
+    ha, hb = a.acquire_blocking(), b.acquire_blocking()
+    try:
+        assert ha and hb  # both slots acquired through the Sentinel master
+    finally:
+        a.release_lock()
+        b.release_lock()
+
+
 @pytest.mark.skipif(
     os.environ.get("REDISKIT_SENTINEL_FAILOVER") not in ("1", "true", "TRUE"),
     reason="opt-in: set REDISKIT_SENTINEL_FAILOVER=1 and kill the master mid-run to verify transparent recovery",
 )
 async def test_failover_transparent_recovery():
     """Continuous real writes for ~45s. Kill the master mid-run (docker stop) and
-    assert the client re-resolves the promoted replica and fully recovers."""
+    assert the client re-resolves the promoted replica and fully recovers — for
+    writes AND for a pub/sub subscriber (whose connection must re-attach to the
+    new master and keep receiving)."""
     conn = get_async_redis_connection()
-    results: list[bool] = []
-    import time
+    channel = f"{TAG}-fo-chan"
 
+    sub = await subscribe_channel(channel)
+    received: list = []
+
+    async def _collect():
+        async for message in sub:
+            received.append(message)
+
+    collector = asyncio.create_task(_collect())
+    await asyncio.sleep(0.3)  # let SUBSCRIBE register
+
+    results: list[bool] = []
     start = time.monotonic()
     n = 0
     while time.monotonic() - start < 45:
@@ -229,6 +287,7 @@ async def test_failover_transparent_recovery():
             async with lock:
                 await conn.set(get_redis_top_node(TENANT, f"{TAG}-fo-key"), str(n))
             await counter(TENANT, "fo", 1, key=f"{TAG}-fo-cnt")
+            await publish(channel, {"n": n})
             results.append(True)
         except Exception:
             results.append(False)
@@ -236,3 +295,18 @@ async def test_failover_transparent_recovery():
 
     tail = results[-10:]
     assert len(tail) == 10 and all(tail), f"did not recover: last 10 ops = {tail}"
+
+    # Messages published while no master was reachable are lost by design
+    # (pub/sub is fire-and-forget); recovery means FRESH publishes arrive again.
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        await publish(channel, {"final": True})
+        await asyncio.sleep(0.5)
+        if any(isinstance(m, dict) and m.get("final") for m in received):
+            break
+    assert any(isinstance(m, dict) and m.get("final") for m in received), "pub/sub subscriber did not recover after failover"
+
+    collector.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await collector
+    await sub.aclose()

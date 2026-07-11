@@ -10,7 +10,7 @@ import redis.asyncio as redis_async
 from redis.asyncio import BlockingConnectionPool
 
 from rediskit import config
-from rediskit.redis.a_client.sentinel import build_sentinel_master_client
+from rediskit.redis.a_client.sentinel import aclose_sentinel_master_client, build_sentinel_master_client
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +37,11 @@ def _make_client(
     socket_keepalive: bool = True,
     health_check_interval: int = 30,
     max_connections: int = 15,
-    timeout: int = 5,
+    # Pool wait for a free connection. 20s matches redis-py's own
+    # BlockingConnectionPool default and — in Sentinel mode — covers the
+    # ~16.6s failover retry budget: pool exhaustion is raised before the
+    # per-command retry starts, so it is never retried.
+    timeout: int = 20,
 ) -> redis_async.Redis:
     loop = asyncio.get_running_loop()
 
@@ -91,7 +95,7 @@ async def get_async_redis_connection_in_eventloop(
     socket_keepalive: bool = True,
     health_check_interval: int = 30,
     max_connections: int = 10,
-    timeout: int = 5,
+    timeout: int = 20,
 ) -> redis_async.Redis:
     loop = asyncio.get_running_loop()
     slot = _get_or_create_slot_for(loop)
@@ -138,7 +142,9 @@ async def close_loop_redis():
     slot = _registry.get(loop)
     if slot and slot.client:
         try:
-            await slot.client.aclose()
+            # Also closes the Sentinel monitor clients when the client is
+            # Sentinel-managed; equivalent to aclose() otherwise.
+            await aclose_sentinel_master_client(slot.client)
             await slot.client.connection_pool.disconnect(inuse_connections=True)
         finally:
             slot.client = None

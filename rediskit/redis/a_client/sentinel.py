@@ -12,18 +12,24 @@ replica``. A non-Sentinel client never learns the master moved and keeps writing
 to the now read-only node until it is restarted.
 
 A Sentinel-managed client instead asks Sentinel "who is the master?" on every
-(re)connect. Combined with a per-command retry whose error set includes
-``ReadOnlyError``, a command that lands on a stale/demoted node disconnects and
-retries, re-resolving the *current* master — so a failover is transparent to the
-caller (a slightly slower write, not a failed one).
+(re)connect. Combined with a per-command retry, a command that lands on a
+stale/demoted node disconnects and retries against the re-resolved *current*
+master — so a failover is transparent to the caller (a slightly slower write,
+not a failed one). Mechanically: the demoted node answers ``ReadOnlyError``,
+redis-py's ``SentinelManagedConnection`` catches it, disconnects, and re-raises
+``ConnectionError("The previous master is now a slave")`` — that retryable
+error is what the per-command retry actually consumes.
 
 The returned object is an ordinary ``redis.asyncio.Redis`` instance, so every
 rediskit capability (locks, pub/sub, memoize, semaphores, counters, all ops)
 works through it unchanged.
+
+The sync twin lives in ``rediskit.redis.client.sentinel``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from redis import asyncio as redis_async
@@ -31,11 +37,17 @@ from redis.asyncio.connection import BlockingConnectionPool
 from redis.asyncio.retry import Retry
 from redis.asyncio.sentinel import Sentinel, SentinelConnectionPool
 from redis.backoff import ExponentialBackoff
-from redis.exceptions import ConnectionError as RedisConnectionError
-from redis.exceptions import ReadOnlyError
-from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from rediskit import config
+from rediskit.redis.sentinel_common import SENTINEL_RETRY_ERRORS, parse_sentinel_hosts, resolve_sentinel_hosts
+
+__all__ = (
+    "SENTINEL_RETRY_ERRORS",
+    "SentinelBlockingConnectionPool",
+    "aclose_sentinel_master_client",
+    "build_sentinel_master_client",
+    "parse_sentinel_hosts",
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,36 +67,9 @@ class SentinelBlockingConnectionPool(SentinelConnectionPool, BlockingConnectionP
     (which adds master discovery via ``SentinelManagedConnection``) composes
     cleanly: MRO takes ``get_connection``/``release`` from the blocking pool and
     ``get_master_address``/``rotate_slaves`` from the sentinel pool.
+    ``tests/test_sentinel_async.py`` pins that MRO resolution against future
+    redis-py versions.
     """
-
-
-# Errors that trigger a transparent retry of a single command.
-#
-# ReadOnlyError is the important one here: it means we are talking to a node that
-# used to be the master but was demoted to a read-only replica during a failover.
-# redis-py's SentinelManagedConnection disconnects on ReadOnlyError, so retrying
-# forces a fresh connection whose address is re-resolved from Sentinel — i.e. the
-# new master. ConnectionError/TimeoutError cover the promotion window where no
-# master is reachable yet.
-SENTINEL_RETRY_ERRORS: list[type[Exception]] = [RedisConnectionError, RedisTimeoutError, ReadOnlyError]
-
-
-def parse_sentinel_hosts(raw: str, default_port: int) -> list[tuple[str, int]]:
-    """Parse ``"host-a:26379, host-b, host-c:5000"`` into ``[(host, port), ...]``.
-
-    A bare host (no ``:port``) uses ``default_port``. Blank entries are ignored.
-    """
-    hosts: list[tuple[str, int]] = []
-    for item in raw.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        host, sep, port = item.rpartition(":")
-        if sep and host and port.isdigit():
-            hosts.append((host, int(port)))
-        else:
-            hosts.append((item, default_port))
-    return hosts
 
 
 def build_sentinel_master_client(
@@ -96,9 +81,11 @@ def build_sentinel_master_client(
     socket_keepalive: bool = True,
     health_check_interval: float = 30,
     max_connections: int = 15,
-    timeout: float = 5,
+    timeout: float = 20,
     retry_attempts: int | None = None,
     client_name: str = "rediskit",
+    sentinel_socket_timeout: float = 2,
+    sentinel_socket_connect_timeout: float = 2,
 ) -> redis_async.Redis:
     """Return a ``redis.asyncio.Redis`` bound to the current Sentinel master.
 
@@ -106,13 +93,18 @@ def build_sentinel_master_client(
     ``password`` argument authenticates the *data nodes* (master/replica) and is
     kept separate from the sentinel password so the data password is never sent
     to the (typically auth-less) sentinels.
+
+    ``timeout`` is the blocking-pool wait for a free connection. It defaults to
+    20s, deliberately *longer* than the ~16.6s failover retry budget: pool
+    exhaustion is raised before the per-command retry starts and is therefore
+    NOT retried, and during a failover in-flight commands hold their connections
+    for the whole retry budget — a shorter wait would surface un-retried
+    ConnectionErrors to concurrent callers mid-failover.
+
+    Close the returned client with :func:`aclose_sentinel_master_client`;
+    ``client.aclose()`` alone leaks the sentinel monitor connections.
     """
-    sentinel_hosts = parse_sentinel_hosts(config.REDIS_SENTINEL_HOSTS, config.REDIS_SENTINEL_PORT)
-    if not sentinel_hosts:
-        raise ValueError(
-            "REDIS_SENTINEL_ENABLED is true but REDIS_SENTINEL_HOSTS is empty. "
-            "Set REDIS_SENTINEL_HOSTS, e.g. 'redis-sentinel-sentinel.redis.svc.cluster.local:26379'."
-        )
+    sentinel_hosts = resolve_sentinel_hosts()
 
     if retry_attempts is None:
         retry_attempts = config.REDIS_KIT_RETRY_ATTEMPTS
@@ -120,10 +112,18 @@ def build_sentinel_master_client(
     # Connection args used to reach the sentinels themselves. Only send a
     # password when one is configured — sentinels usually have none, and sending
     # AUTH to a no-auth server is an error.
+    #
+    # The monitor clients get a deliberately fast-fail retry and short timeouts:
+    # redis-py's default (10 retries with backoff) would let one dead or
+    # black-holed sentinel stall master discovery for ~60s — during a failover,
+    # exactly when the dead node may also have hosted a sentinel. Failover speed
+    # comes from moving on to the NEXT sentinel (discover_master tries them in
+    # order), not from hammering an unreachable one.
     sentinel_kwargs: dict = {
-        "socket_timeout": socket_timeout,
-        "socket_connect_timeout": socket_connect_timeout,
+        "socket_timeout": sentinel_socket_timeout,
+        "socket_connect_timeout": sentinel_socket_connect_timeout,
         "socket_keepalive": socket_keepalive,
+        "retry": Retry(ExponentialBackoff(cap=0.2, base=0.05), retries=1),
     }
     if config.REDIS_SENTINEL_PASSWORD:
         sentinel_kwargs["password"] = config.REDIS_SENTINEL_PASSWORD
@@ -160,5 +160,25 @@ def build_sentinel_master_client(
         timeout=timeout,
         client_name=client_name,
         retry=retry,
-        retry_on_error=SENTINEL_RETRY_ERRORS,
+        retry_on_error=list(SENTINEL_RETRY_ERRORS),
     )
+
+
+async def aclose_sentinel_master_client(client: redis_async.Redis) -> None:
+    """Close a Sentinel-managed client *and* its sentinel monitor clients.
+
+    ``client.aclose()`` closes the managed connection pool (the client owns it
+    via ``from_pool``) but not the ``Sentinel`` manager's own per-endpoint Redis
+    clients, each of which holds an open connection after the first master
+    discovery — closing only the client leaks those sockets. Safe to call on a
+    non-Sentinel client too, where it is equivalent to ``aclose()``.
+    """
+    pool = client.connection_pool
+    try:
+        await client.aclose()
+    finally:
+        manager = getattr(pool, "sentinel_manager", None)
+        if manager is not None:
+            for sentinel_client in manager.sentinels:
+                with contextlib.suppress(Exception):
+                    await sentinel_client.aclose()

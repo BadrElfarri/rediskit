@@ -4,7 +4,7 @@ from redis import asyncio as redis_async
 
 from rediskit import config
 from rediskit.redis.a_client.redis_in_eventloop import close_loop_redis, get_async_client_for_current_loop, get_async_redis_connection_in_eventloop
-from rediskit.redis.a_client.sentinel import build_sentinel_master_client
+from rediskit.redis.a_client.sentinel import aclose_sentinel_master_client, build_sentinel_master_client
 
 
 async def init_async_redis_connection_pool(
@@ -18,7 +18,7 @@ async def init_async_redis_connection_pool(
     socket_keepalive: bool = True,
     health_check_interval: int = 30,
     max_connections: int = 10,
-    timeout: int = 5,
+    timeout: int = 20,
 ) -> None:
     await get_async_redis_connection_in_eventloop(
         host=host,
@@ -44,7 +44,7 @@ async def redis_single_connection_context():
         try:
             yield client
         finally:
-            await client.aclose()
+            await aclose_sentinel_master_client(client)
         return
 
     pool = redis_async.ConnectionPool(

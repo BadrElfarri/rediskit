@@ -1,0 +1,93 @@
+# Live Sentinel topology for the integration suite (see README "Testing
+# against a local Sentinel"): 1 master + 1 replica + 1 sentinel, plus a `test`
+# runner that executes pytest INSIDE the docker network — required because
+# Sentinel announces the `redis` / `redis-replica` hostnames, which only
+# resolve there.
+#
+#   PYTEST_TARGET=tests/test_sentinel_integration.py \
+#     docker compose -f docker-compose.sentinel.yml run --rm test
+#
+# Failover drill: start the suite with REDISKIT_SENTINEL_FAILOVER=1, then in
+# another shell `docker compose -f docker-compose.sentinel.yml stop redis` —
+# Sentinel promotes redis-replica and the clients must recover transparently.
+
+services:
+  # redis-stack-server = redis-server + the JSON module the json_op helpers
+  # use (the plain `redis` images ship without modules). Extra server args go
+  # through REDIS_ARGS — the image's entrypoint appends them.
+  redis:
+    image: redis/redis-stack-server:latest
+    environment:
+      # announce by service name so clients outside this container can follow
+      # it when it is demoted to a replica after a failover drill
+      REDIS_ARGS: "--appendonly no --replica-announce-ip redis --replica-announce-port 6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  redis-replica:
+    image: redis/redis-stack-server:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ARGS: "--appendonly no --replicaof redis 6379 --replica-announce-ip redis-replica --replica-announce-port 6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  redis-sentinel:
+    image: redis:7-alpine
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    # Sentinel rewrites its config file at runtime, so generate it in a
+    # writable location instead of bind-mounting a read-only file.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        cat > /data/sentinel.conf <<'EOF'
+        port 26379
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
+        sentinel monitor myMaster redis 6379 1
+        sentinel down-after-milliseconds myMaster 2000
+        sentinel failover-timeout myMaster 10000
+        sentinel parallel-syncs myMaster 1
+        EOF
+        exec redis-sentinel /data/sentinel.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  test:
+    image: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+    depends_on:
+      redis-sentinel:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      REDIS_SENTINEL_ENABLED: "true"
+      REDIS_SENTINEL_HOSTS: "redis-sentinel:26379"
+      REDIS_SENTINEL_MASTER_NAME: "myMaster"
+      REDISKIT_SENTINEL_FAILOVER: ${REDISKIT_SENTINEL_FAILOVER:-}
+      PYTEST_TARGET: ${PYTEST_TARGET:-tests/}
+      # keep the container's venv + cache off the host bind mount (the host
+      # .venv is for the host platform)
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+      UV_CACHE_DIR: /tmp/uv-cache
+    command:
+      - sh
+      - -c
+      - uv sync --frozen --quiet && uv run --no-sync pytest $${PYTEST_TARGET} -v
