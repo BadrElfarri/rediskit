@@ -7,7 +7,7 @@ from rediskit import config
 from rediskit.redis.client.connection import get_redis_connection
 from rediskit.redis.client.keys_op import set_redis_cache_expiry
 from rediskit.redis.node import get_redis_top_node
-from rediskit.utils import check_matching_dict_data
+from rediskit.utils import check_matching_dict_data, has_glob_pattern
 
 
 def dump_cache_to_redis(
@@ -53,6 +53,12 @@ def load_cache_from_redis(
     if config.REDIS_SKIP_CACHING:
         return payloads
     connection = connection if connection is not None else get_redis_connection()
+    if not has_glob_pattern(node_match):
+        # Exact key: one JSON.GET (see the async twin for why SCAN is avoided here).
+        raw = connection.execute_command("JSON.GET", node_match)
+        if raw is not None:
+            payloads.append(json.loads(raw))
+        return payloads
     keys = connection.scan_iter(match=node_match, count=count)
     for key in keys:
         raw = connection.execute_command("JSON.GET", key)

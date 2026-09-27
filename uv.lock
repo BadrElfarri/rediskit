@@ -530,7 +530,7 @@ wheels = [
 
 [[package]]
 name = "rediskit"
-version = "0.0.43"
+version = "0.0.45"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

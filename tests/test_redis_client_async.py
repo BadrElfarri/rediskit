@@ -238,3 +238,37 @@ async def test_async_redis_connection_is_singleton():
     r1 = get_async_redis_connection()
     r2 = get_async_redis_connection()
     assert r1 is r2, "Expected singleton async redis client; multiple clients = multiple pools = many connections"
+
+
+@pytest.mark.asyncio
+async def test_exact_key_helpers_never_scan(connection, monkeypatch):
+    """An exact key (no glob characters) must resolve with O(1) commands, not a keyspace SCAN."""
+    key = "exact_no_scan"
+    data = {"val": 1}
+    await dump_cache_to_redis(TEST_TENANT_ID, key, data, connection=connection)
+
+    def scan_forbidden(*args, **kwargs):
+        raise AssertionError("SCAN must not be used for an exact key")
+
+    monkeypatch.setattr(connection, "scan_iter", scan_forbidden)
+
+    assert await load_cache_from_redis(TEST_TENANT_ID, key, connection=connection) == [data]
+    assert await load_cache_from_redis(TEST_TENANT_ID, "exact_missing", connection=connection) == []
+    assert await check_cache_matches(TEST_TENANT_ID, key, {"val": 1}, connection=connection)
+    assert not await check_cache_matches(TEST_TENANT_ID, "exact_missing", {"val": 1}, connection=connection)
+    assert await get_keys(TEST_TENANT_ID, key, connection=connection) == [key]
+    assert await get_keys(TEST_TENANT_ID, "exact_missing", connection=connection) == []
+    node_key = get_redis_top_node(TEST_TENANT_ID, key)
+    assert [k async for k in list_keys(TEST_TENANT_ID, key, connection=connection)] == [node_key]
+    assert [k async for k in list_keys(TEST_TENANT_ID, "exact_missing", connection=connection)] == []
+
+
+@pytest.mark.asyncio
+async def test_glob_pattern_helpers_still_scan(connection):
+    for i in range(3):
+        await dump_cache_to_redis(TEST_TENANT_ID, f"globscan:{i}", {"i": i}, connection=connection)
+    results = await load_cache_from_redis(TEST_TENANT_ID, "globscan:*", connection=connection)
+    assert sorted(r["i"] for r in results) == [0, 1, 2]
+    assert sorted(await get_keys(TEST_TENANT_ID, "globscan:*", connection=connection)) == ["0", "1", "2"]
+    listed = [k async for k in list_keys(TEST_TENANT_ID, "globscan:?", connection=connection)]
+    assert len(listed) == 3

@@ -14,7 +14,7 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 REDIS_TOP_NODE = os.environ.get("REDIS_TOP_NODE", "redis_kit_node")
-REDIS_SCAN_COUNT = int(os.environ.get("REDIS_SCAN_COUNT", "10000"))
+REDIS_SCAN_COUNT = int(os.environ.get("REDIS_SCAN_COUNT", "5000"))
 REDIS_SKIP_CACHING = os.environ.get("REDIS_SKIP_CACHING", "false").upper() == "TRUE"
 
 # Sentinel Settings (high-availability master discovery, sync + async).

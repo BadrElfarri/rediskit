@@ -8,6 +8,12 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+_REDIS_GLOB_CHARS = frozenset("*?[]\\")
+
+
+def has_glob_pattern(value: str) -> bool:
+    return any(ch in _REDIS_GLOB_CHARS for ch in value)
+
 
 def base64_json_to_dict(keys_base64: str | None) -> dict[str, str]:
     if not keys_base64:

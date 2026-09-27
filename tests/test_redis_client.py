@@ -222,3 +222,34 @@ def test_sync_readiness_ping():
     conn = get_redis_connection()
     assert readiness_ping(conn) is True
     assert readiness_ping() is True
+
+
+def test_exact_key_helpers_never_scan(connection, monkeypatch):
+    """An exact key (no glob characters) must resolve with O(1) commands, not a keyspace SCAN."""
+    key = "exact_no_scan"
+    data = {"val": 1}
+    dump_cache_to_redis(TEST_TENANT_ID, key, data, connection=connection)
+
+    def scan_forbidden(*args, **kwargs):
+        raise AssertionError("SCAN must not be used for an exact key")
+
+    monkeypatch.setattr(connection, "scan_iter", scan_forbidden)
+
+    assert load_cache_from_redis(TEST_TENANT_ID, key, connection=connection) == [data]
+    assert load_cache_from_redis(TEST_TENANT_ID, "exact_missing", connection=connection) == []
+    assert check_cache_matches(TEST_TENANT_ID, key, {"val": 1}, connection=connection)
+    assert not check_cache_matches(TEST_TENANT_ID, "exact_missing", {"val": 1}, connection=connection)
+    assert get_keys(TEST_TENANT_ID, key, connection=connection) == [key]
+    assert get_keys(TEST_TENANT_ID, "exact_missing", connection=connection) == []
+    node_key = get_redis_top_node(TEST_TENANT_ID, key)
+    assert list(list_keys(TEST_TENANT_ID, key, connection=connection)) == [node_key]
+    assert list(list_keys(TEST_TENANT_ID, "exact_missing", connection=connection)) == []
+
+
+def test_glob_pattern_helpers_still_scan(connection):
+    for i in range(3):
+        dump_cache_to_redis(TEST_TENANT_ID, f"globscan:{i}", {"i": i}, connection=connection)
+    results = load_cache_from_redis(TEST_TENANT_ID, "globscan:*", connection=connection)
+    assert sorted(r["i"] for r in results) == [0, 1, 2]
+    assert sorted(get_keys(TEST_TENANT_ID, "globscan:*", connection=connection)) == ["0", "1", "2"]
+    assert len(list(list_keys(TEST_TENANT_ID, "globscan:?", connection=connection))) == 3

@@ -5,6 +5,7 @@ from redis import Redis
 from rediskit import config
 from rediskit.redis.client.connection import get_redis_connection
 from rediskit.redis.node import get_redis_top_node
+from rediskit.utils import has_glob_pattern
 
 
 def set_redis_cache_expiry(
@@ -20,9 +21,11 @@ def get_keys(
 ) -> list[str]:
     node_key = top_node(tenant_id, key)
     connection = connection if connection is not None else get_redis_connection()
-    # SCAN instead of KEYS: same result, but does not block Redis on large keyspaces.
-    # SCAN may return duplicates, so dedupe while preserving order.
-    keys: list[str] = list(dict.fromkeys(connection.scan_iter(match=node_key, count=config.REDIS_SCAN_COUNT)))
+    keys: list[str]
+    if not has_glob_pattern(node_key):
+        keys = [node_key] if connection.exists(node_key) else []
+    else:
+        keys = list(dict.fromkeys(connection.scan_iter(match=node_key, count=config.REDIS_SCAN_COUNT)))
     if only_last_key:
         keys = [k.split(":")[-1] for k in keys]
     return keys
@@ -62,6 +65,11 @@ def list_keys(
 ) -> Iterator[str]:
     pattern = top_node(tenant_id, match_key)
     conn = connection if connection is not None else get_redis_connection()
+    if not has_glob_pattern(pattern):
+        # Exact key: EXISTS instead of walking the whole keyspace with SCAN.
+        if conn.exists(pattern):
+            yield pattern
+        return
     for i, key in enumerate(conn.scan_iter(match=pattern, count=count)):
         if i >= 10_000:
             raise ValueError("Redis keys exceeded 10_000 matches")

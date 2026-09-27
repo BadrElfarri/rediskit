@@ -5,6 +5,7 @@ from redis import asyncio as redis_async
 from rediskit import config
 from rediskit.redis.a_client.connection import get_async_redis_connection
 from rediskit.redis.node import get_redis_top_node
+from rediskit.utils import has_glob_pattern
 
 
 async def list_keys(
@@ -16,6 +17,10 @@ async def list_keys(
 ) -> AsyncIterator[str]:
     pattern = top_node(tenant_id, match_key)
     conn = connection if connection is not None else get_async_redis_connection()
+    if not has_glob_pattern(pattern):
+        if await conn.exists(pattern):
+            yield pattern
+        return
     i = 0
     async for key in conn.scan_iter(match=pattern, count=count):
         if i >= 10_000:
@@ -45,12 +50,13 @@ async def get_keys(
 ) -> list[str]:
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
-    # SCAN instead of KEYS: same result, but does not block Redis on large keyspaces.
-    # SCAN may return duplicates, so dedupe while preserving order.
-    seen: dict[str, None] = {}
-    async for k in conn.scan_iter(match=node_key, count=config.REDIS_SCAN_COUNT):
-        seen[k] = None
-    keys = list(seen)
+    if not has_glob_pattern(node_key):
+        keys = [node_key] if await conn.exists(node_key) else []
+    else:
+        seen: dict[str, None] = {}
+        async for k in conn.scan_iter(match=node_key, count=config.REDIS_SCAN_COUNT):
+            seen[k] = None
+        keys = list(seen)
     if only_last_key:
         keys = [k.split(":")[-1] for k in keys]
     return keys

@@ -8,7 +8,7 @@ from rediskit.redis.a_client.connection import get_async_redis_connection
 
 async def readiness_ping(
     connection: redis_async.Redis | None = None,
-    timeout: float = 0.3,
+    timeout: float = 2.0,
 ) -> bool:
     try:
         conn = connection if connection is not None else get_async_redis_connection()

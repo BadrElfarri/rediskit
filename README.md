@@ -233,7 +233,7 @@ export REDIS_KIT_ENCRYPTION_SECRET="eyJfX2VuY192MSI6ICI0MGViODJlNWJhNTJiNmQ4..."
 # Cache settings
 export REDIS_TOP_NODE="my_app_cache"      # key prefix, default "redis_kit_node"
 export REDIS_SKIP_CACHING="false"         # short-circuit cache reads
-export REDIS_SCAN_COUNT="10000"           # SCAN batch size hint
+export REDIS_SCAN_COUNT="1000"            # SCAN batch size hint for glob patterns (exact keys never SCAN)
 ```
 
 ## API Reference
