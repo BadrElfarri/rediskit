@@ -1,7 +1,9 @@
 import json
-from typing import Any, Awaitable, Callable, cast
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from redis import asyncio as redis_async
+from redis.typing import EncodableT, FieldT
 
 from rediskit.encrypter import Encrypter
 from rediskit.redis.a_client.connection import get_async_redis_connection
@@ -18,7 +20,7 @@ async def hash_set_ttl_for_key(
 ) -> None:
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
-    await conn.hexpire(node_key, ttl, *fields)  # type: ignore[attr-defined]
+    await conn.hexpire(node_key, ttl, *fields)
 
 
 async def h_set_cache_to_redis(
@@ -32,15 +34,15 @@ async def h_set_cache_to_redis(
 ) -> None:
     node_key = top_node(tenant_id, key)
     conn = connection if connection is not None else get_async_redis_connection()
-    mapping: dict[str, Any]
+    mapping: dict[FieldT, EncodableT]
     if enable_encryption:
         encrypter = Encrypter()
         mapping = {field: encrypter.encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
     else:
         mapping = {field: json.dumps(value) for field, value in fields.items()}
-    await cast(Awaitable[int], conn.hset(node_key, mapping=mapping))
+    await conn.hset(node_key, mapping=mapping)
     if ttl is not None:
-        await cast(Awaitable[Any], conn.hexpire(node_key, ttl, *mapping.keys()))  # type: ignore
+        await conn.hexpire(node_key, ttl, *mapping.keys())
 
 
 async def h_get_cache_from_redis(
@@ -65,10 +67,10 @@ async def h_get_cache_from_redis(
         values = await cast(Awaitable[list], conn.hmget(node_key, fields))
         data = {fields[i]: (value if value is not None else None) for i, value in enumerate(values)}
     else:
-        raise ValueError("fields must be either None, a string, or a list of strings")
+        raise TypeError("fields must be either None, a string, or a list of strings")
 
     if set_ttl_on_read is not None and data:
-        await conn.hexpire(node_key, set_ttl_on_read, *data.keys())  # type: ignore[attr-defined]
+        await conn.hexpire(node_key, set_ttl_on_read, *data.keys())
 
     if is_encrypted:
         encrypter = Encrypter()
@@ -109,5 +111,5 @@ async def h_del_cache_from_redis(
     elif isinstance(fields, list):
         field_names = fields
     else:
-        raise ValueError("fields must be either a dictionary or a list of strings")
-    await cast(Awaitable[int], conn.hdel(node_key, *field_names))
+        raise TypeError("fields must be either a dictionary or a list of strings")
+    await conn.hdel(node_key, *field_names)

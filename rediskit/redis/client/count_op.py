@@ -1,4 +1,5 @@
-from typing import Callable, cast
+from collections.abc import Callable
+from typing import cast
 
 import redis
 
@@ -17,7 +18,7 @@ def counter(
 ) -> int:
     connection = connection if connection is not None else get_redis_connection()
     node_key = top_node(tenant_id, key)
-    new_count = cast(int, connection.hincrby(node_key, field, delta))
+    new_count = connection.hincrby(node_key, field, delta)
     if new_count <= min_value:
         connection.hdel(node_key, field)
     return new_count

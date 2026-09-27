@@ -27,7 +27,7 @@ def get_async_redis_mutex_lock(
     sleep: float = 1.0,
     blocking: bool = True,
     blocking_timeout: float | None = None,
-    lock_class: type[redis_lock.Lock] | None = None,
+    lock_class: type[AsyncRedisLock] | None = None,
     thread_local: bool = True,
     raise_on_release_error: bool = True,
 ) -> AsyncRedisLock:

@@ -73,7 +73,6 @@ async def testReturnNoneAsync():
     @a_redis_memoize(memoize_key="returnNoneAsync", ttl=10, cache_type="zipJson")
     async def func(tenantId: str, x):
         await asyncio.sleep(1)
-        return None
 
     res1 = await func(TEST_TENANT_ID, 42)
     res2 = await func(TEST_TENANT_ID, 42)

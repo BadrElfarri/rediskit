@@ -1,4 +1,4 @@
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
 
 from redis import Redis
 
@@ -45,7 +45,7 @@ def expire(
     connection: Redis | None = None,
 ) -> bool:
     connection = connection if connection is not None else get_redis_connection()
-    return connection.expire(key, seconds)  # type: ignore[return-value]
+    return connection.expire(key, seconds)
 
 
 def delete(
@@ -53,7 +53,7 @@ def delete(
     connection: Redis | None = None,
 ) -> int:
     connection = connection if connection is not None else get_redis_connection()
-    return connection.delete(*keys)  # type: ignore[return-value]
+    return connection.delete(*keys)
 
 
 def list_keys(

@@ -6,8 +6,8 @@ import asyncio
 import contextlib
 import inspect
 import random
-from collections.abc import AsyncIterator, Callable
-from typing import Any, Dict, Iterable, Set
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterable
+from typing import Any, Self
 
 import redis.asyncio as redis_async
 from redis.asyncio.client import PubSub as _PubSub
@@ -69,7 +69,7 @@ class ChannelSubscription(AsyncIterator[Any]):
         self._pubsub = pubsub
         self._decoder = decoder
         self._closed = False
-        self._iterator: AsyncIterator = self._listen()
+        self._iterator: AsyncGenerator[Any, None] = self._listen()
 
     async def _ensure_closed(self) -> None:
         if self._closed:
@@ -80,7 +80,7 @@ class ChannelSubscription(AsyncIterator[Any]):
         finally:
             await self._pubsub.aclose()
 
-    async def _listen(self) -> AsyncIterator[Any]:
+    async def _listen(self) -> AsyncGenerator[Any, None]:
         try:
             async for raw in self._pubsub.listen():
                 if raw.get("type") != "message":
@@ -90,7 +90,7 @@ class ChannelSubscription(AsyncIterator[Any]):
         finally:
             await self._ensure_closed()
 
-    def __aiter__(self) -> "ChannelSubscription":
+    def __aiter__(self) -> ChannelSubscription:
         return self
 
     async def __anext__(self) -> Any:
@@ -101,10 +101,10 @@ class ChannelSubscription(AsyncIterator[Any]):
             raise
 
     async def aclose(self) -> None:
-        await self._iterator.aclose()  # type: ignore # fix later
+        await self._iterator.aclose()
         await self._ensure_closed()
 
-    async def __aenter__(self) -> "ChannelSubscription":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -170,7 +170,7 @@ class FanoutBroker:
         self._patterns = list(patterns or [])
         self._decoder = decoder or _default_decoder
         self._external_connection = connection
-        self._subs: Dict[str, Set[asyncio.Queue[Any]]] = {}
+        self._subs: dict[str, set[asyncio.Queue[Any]]] = {}
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._client: redis_async.Redis | None = None
@@ -235,17 +235,15 @@ class FanoutBroker:
 
         # merge init-time patterns with provided patterns
         merged_patterns: list[str] = list(self._patterns)
-        if patterns:
-            merged_patterns.extend(patterns)
+        merged_patterns.extend(patterns)
 
         # split channels vs patterns
         chan_list: list[str] = []
-        if channels:
-            for c in channels:
-                if self._is_pattern(c):
-                    merged_patterns.append(c)
-                else:
-                    chan_list.append(c)
+        for c in channels:
+            if self._is_pattern(c):
+                merged_patterns.append(c)
+            else:
+                chan_list.append(c)
 
         # remember for reconnect
         self._chan_list = chan_list
@@ -308,7 +306,7 @@ class FanoutBroker:
         self._task = None
         self._stopping.clear()
 
-    async def subscribe(self, topic: str, *, maxsize: int = 1_000) -> "SubscriptionHandle":
+    async def subscribe(self, topic: str, *, maxsize: int = 1_000) -> SubscriptionHandle:
         """Register a local subscriber queue for ``topic``."""
         # Auto-restart if previously started but task died
         if self._task is None or self._task.done():
@@ -354,7 +352,7 @@ class FanoutBroker:
                         await self._reconnect()
                         pubsub = self._ps  # refresh handle
                         continue
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - keep the broker loop alive; back off and retry
                         backoff = min(max_backoff, backoff * 2)
                         continue
 
@@ -372,7 +370,7 @@ class FanoutBroker:
 
                 try:
                     data = self._decoder(raw_data) if not isinstance(raw_data, Exception) else raw_data
-                except Exception:
+                except Exception:  # noqa: BLE001 - user-supplied decoder; fall back to the raw payload
                     data = raw_data
 
                 targets: list[asyncio.Queue] = []
@@ -411,7 +409,7 @@ class SubscriptionHandle(AsyncIterator[Any]):
         self._broker = broker
         self._closed = False
 
-    def __aiter__(self) -> "SubscriptionHandle":
+    def __aiter__(self) -> SubscriptionHandle:
         return self
 
     async def __anext__(self) -> Any:

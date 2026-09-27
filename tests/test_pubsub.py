@@ -550,7 +550,6 @@ async def test_fanout_broker_reconnects_and_resubscribes_after_connection_error(
             raised["done"] = True
             raise RedisConnectionError("simulated drop")
         await asyncio.sleep(0)  # yield
-        return None
 
     monkeypatch.setattr(ps, "get_message", flaky_get_message)
 

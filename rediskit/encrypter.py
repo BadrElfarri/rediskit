@@ -2,6 +2,7 @@ import base64
 import gzip
 import json
 import re
+from typing import cast
 
 import zstd
 from nacl import encoding, secret
@@ -44,7 +45,7 @@ class Encrypter:
 
     def encrypt[T: str | bytes | None](self, data: T, raiseIfEncrypted: bool = True, useZstd: bool = True) -> T:
         if data is None:
-            return None  # type: ignore # not able to check this properly
+            return cast(T, None)
         elif isinstance(data, str):
             dataToEncrypt: bytes = data.encode()
             isText = True
@@ -63,11 +64,11 @@ class Encrypter:
         cipherText = self._getSecretBox(self.latestVersion).encrypt(compressedData, encoder=encoding.Base64Encoder)
         token = self.latestVersion.encode() + b"|" + tagBytes + b":" + cipherText
 
-        return token.decode() if isText else token  # type: ignore # not able to check this properly
+        return cast(T, token.decode() if isText else token)
 
     def decrypt[T: str | bytes | None](self, data: T) -> T:
         if data is None:
-            return None  # type: ignore # not able to check this properly
+            return cast(T, None)
         elif isinstance(data, str):
             dataToDecrypt: bytes = data.encode()
             isText = True
@@ -108,7 +109,7 @@ class Encrypter:
         else:
             raise ValueError(f"Unknown compression '{compressionTag.decode()}' in encrypted data.")
 
-        return deCompressed.decode() if isText else deCompressed  # type: ignore # not able to check this properly
+        return cast(T, deCompressed.decode() if isText else deCompressed)
 
     @staticmethod
     def get_encryption_key_version_number(versionKey: str) -> int:

@@ -39,6 +39,7 @@ init_redis_connection_pool()
 def expensive_calculation(tenantId: str, value: int) -> dict:
     # Simulate expensive computation
     import time
+
     time.sleep(2)
     return {"result": value * 42}
 
@@ -55,14 +56,10 @@ import redis
 from rediskit import redis_memoize
 
 # Use your own Redis connection
-my_redis = redis.Redis(host='my-redis-host', port=6379, db=1)
+my_redis = redis.Redis(host="my-redis-host", port=6379, db=1)
 
 
-@redis_memoize(
-    memoize_key="custom_calc",
-    ttl=600,
-    connection=my_redis
-)
+@redis_memoize(memoize_key="custom_calc", ttl=600, connection=my_redis)
 def my_function(tenantId: str, data: dict) -> dict:
     return {"processed": data}
 ```
@@ -79,7 +76,7 @@ from rediskit import redis_memoize
     ttl=3600,
     storage_type="hash",  # Store in Redis hash for efficient field access
     enable_encryption=True,  # Encrypt sensitive data
-    cache_type="zipJson"  # JSON serialization with compression
+    cache_type="zipJson",  # JSON serialization with compression
 )
 def get_user_profile(tenantId: str, user_id: str) -> dict:
     # Fetch user data from database
@@ -90,7 +87,7 @@ def get_user_profile(tenantId: str, user_id: str) -> dict:
 @redis_memoize(
     memoize_key="dynamic_data",
     ttl=lambda tenantId, priority: 3600 if priority == "high" else 300,
-    bypass_cache=lambda tenantId, force_refresh: force_refresh
+    bypass_cache=lambda tenantId, force_refresh: force_refresh,
 )
 def get_dynamic_data(tenantId: str, priority: str, force_refresh: bool = False) -> dict:
     return {"data": "fresh_data", "priority": priority}
@@ -144,7 +141,7 @@ the Sentinel-managed master:
 ```python
 from rediskit import init_async_redis_connection_pool, get_async_redis_mutex_lock
 
-await init_async_redis_connection_pool()   # builds a Sentinel-managed client when enabled
+await init_async_redis_connection_pool()  # builds a Sentinel-managed client when enabled
 async with get_async_redis_mutex_lock("critical_section", expire=30):
     ...  # writes always land on the current master, even after a failover
 ```

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from redis import Redis
 
@@ -18,4 +18,4 @@ def publish(channel: str, message: Any, *, encoder: Serializer | None = None, co
     encoder = encoder or _default_encoder
     connection = connection or get_redis_connection()
     encoded = encoder(message)
-    return cast(int, connection.publish(channel, encoded))
+    return connection.publish(channel, encoded)

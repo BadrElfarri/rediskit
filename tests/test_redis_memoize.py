@@ -329,7 +329,6 @@ def testReturnNoneSync():
     @redis_memoize(memoize_key="returnNoneSync", ttl=10, cache_type="zipJson")
     def func(tenantId: str, x):
         time.sleep(1)
-        return None
 
     res1 = func(TEST_TENANT_ID, 42)
     res2 = func(TEST_TENANT_ID, 42)

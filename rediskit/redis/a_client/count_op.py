@@ -1,4 +1,5 @@
-from typing import Awaitable, Callable, cast
+from collections.abc import Awaitable, Callable
+from typing import cast
 
 from redis import asyncio as redis_async
 
@@ -17,9 +18,9 @@ async def counter(
 ) -> int:
     connection = connection if connection is not None else get_async_redis_connection()
     node_key = top_node(tenant_id, key)
-    new_count = await cast(Awaitable[int], connection.hincrby(node_key, field, delta))
+    new_count = await connection.hincrby(node_key, field, delta)
     if new_count <= min_value:
-        await cast(Awaitable[int], connection.hdel(node_key, field))
+        await connection.hdel(node_key, field)
     return new_count
 
 

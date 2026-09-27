@@ -134,7 +134,7 @@ async def test_get_keys(connection):
     await h_set_cache_to_redis(TEST_TENANT_ID, k1, {"a": 1}, connection=connection)
     await h_set_cache_to_redis(TEST_TENANT_ID, k2, {"a": 2}, connection=connection)
     keys = await get_keys(TEST_TENANT_ID, "*", connection=connection, only_last_key=True)
-    assert set([k1, k2]).issubset(set(keys))
+    assert {k1, k2}.issubset(set(keys))
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_h_scan_fields(connection):
 async def test_h_get_invalid_field_type(connection):
     key = "badtype"
     await h_set_cache_to_redis(TEST_TENANT_ID, key, {"f": 1}, connection=connection)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         await h_get_cache_from_redis(TEST_TENANT_ID, key, 42, connection=connection)
 
 
@@ -188,7 +188,7 @@ async def test_h_get_invalid_field_type(connection):
 async def test_h_del_invalid_field_type(connection):
     key = "delfail"
     await h_set_cache_to_redis(TEST_TENANT_ID, key, {"f": 1}, connection=connection)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         await h_del_cache_from_redis(TEST_TENANT_ID, key, 1.23, connection=connection)
 
 

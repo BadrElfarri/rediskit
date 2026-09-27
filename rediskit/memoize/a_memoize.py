@@ -1,8 +1,9 @@
 import functools
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from redis.asyncio import Redis as Redis
+from redis.asyncio import Redis
 
 from rediskit.memoize.tools import cache_type_options, deserialize_data, get_params, redis_storage_options, serialize_data, split_hash_key
 from rediskit.redis import a_client

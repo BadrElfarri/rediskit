@@ -3,8 +3,9 @@ import contextvars
 import logging
 import random
 import uuid
+from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Awaitable, Optional, Tuple, cast
+from typing import cast
 
 import redis.asyncio as redis_async
 from redis import RedisError
@@ -35,7 +36,7 @@ return 0
 class _Lease:
     holder_id: str
     slot_key: str
-    renew_task: Optional[asyncio.Task]
+    renew_task: asyncio.Task | None
     stop_event: asyncio.Event
 
 
@@ -52,9 +53,9 @@ class AsyncSemaphore:
         backoff_initial: float = 0.5,
         backoff_max: float = 2.0,
         backoff_multiplier: float = 1.5,
-        backoff_jitter: Tuple[float, float] = (0.8, 1.2),
+        backoff_jitter: tuple[float, float] = (0.8, 1.2),
         renew_ratio: float = 0.7,  # renew every ttl * renew_ratio
-        renew_jitter: Tuple[float, float] = (0.85, 1.15),
+        renew_jitter: tuple[float, float] = (0.85, 1.15),
     ):
         if limit <= 0:
             raise ValueError("Limit must be positive")
@@ -79,13 +80,13 @@ class AsyncSemaphore:
         self.renew_ratio = float(renew_ratio)
         self.renew_jitter = renew_jitter
 
-        self._lease_var: contextvars.ContextVar[Optional[_Lease]] = contextvars.ContextVar(
+        self._lease_var: contextvars.ContextVar[_Lease | None] = contextvars.ContextVar(
             f"AsyncSemaphoreLease:{self.namespace}",
             default=None,
         )
 
     @property
-    def holder_id(self) -> Optional[str]:
+    def holder_id(self) -> str | None:
         lease = self._lease_var.get()
         return lease.holder_id if lease else None
 
@@ -132,7 +133,7 @@ class AsyncSemaphore:
         except asyncio.CancelledError:
             return
         except Exception as e:
-            log.warning("Semaphore TTL renewal failed: %s", e)
+            log.warning("Semaphore TTL renewal failed: %s", e, exc_info=True)
             return
 
     async def get_active_count(self) -> int:

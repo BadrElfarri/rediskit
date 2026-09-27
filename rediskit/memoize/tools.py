@@ -2,7 +2,8 @@ import base64
 import inspect
 import json
 import pickle
-from typing import Any, Callable, Literal
+from collections.abc import Callable
+from typing import Any, Literal, cast
 
 import zstd
 
@@ -80,7 +81,7 @@ def compute_value[T](param: T | Callable[..., T], *args, **kwargs) -> T:
             bound = sig.bind(*args, **filtered_kwargs)
             bound.apply_defaults()
             value = param(*bound.args, **bound.kwargs)
-        return value
+        return cast(T, value)
     else:
         return param
 
@@ -90,19 +91,19 @@ def get_params(
 ) -> tuple[str, int | None, str | None, str, bool]:
     def compute_memoize_key(*args, **kwargs) -> str:
         if not (isinstance(memoize_key, str) or callable(memoize_key)):
-            raise ValueError(f"Expected memoize_key to be Callable or a str. got {type(memoize_key)}")
+            raise TypeError(f"Expected memoize_key to be Callable or a str. got {type(memoize_key)}")
         return compute_value(memoize_key, *args, **kwargs)
 
     def compute_ttl(*args, **kwargs) -> int | None:
         if ttl is None:
             return None
         if not (isinstance(ttl, int) or callable(ttl)):
-            raise ValueError(f"Expected ttl to be Callable or an int. got {type(ttl)}")
+            raise TypeError(f"Expected ttl to be Callable or an int. got {type(ttl)}")
         return compute_value(ttl, *args, **kwargs)
 
     def compute_by_pass_cache(*args, **kwargs) -> bool:
         if not (isinstance(bypass_cache, bool) or callable(bypass_cache)):
-            raise ValueError(f"Expected bypass_cache to be Callable or a bool. got {type(bypass_cache)}")
+            raise TypeError(f"Expected bypass_cache to be Callable or a bool. got {type(bypass_cache)}")
         return compute_value(bypass_cache, *args, **kwargs)
 
     def compute_tenant_id(wrapped_func: Callable[..., Any], *args, **kwargs) -> str | None:

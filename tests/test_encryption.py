@@ -55,7 +55,7 @@ def test_is_encrypted_no_match():
     assert Encrypter.is_encrypted("__enc_v1without_colon") is False
 
     # Has prefix and colon but invalid base64
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         Encrypter.is_encrypted("__enc_v1:not!valid!base64!", raiseIfEncrypted=True)
 
 
@@ -72,7 +72,7 @@ def test_decrypt_invalid_format(encrypter):
     which should result in an exception if the data is invalid.
     """
     invalid_encrypted = "invalid_data_without_colon"
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         encrypter.decrypt(invalid_encrypted)
 
 
@@ -126,7 +126,7 @@ def test_get_secret_box_invalid_key():
     # Create an Encrypter with an invalid hex key.
     keys = {"__enc_v1": "invalid_hex_key"}
     enc = Encrypter(keys)
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         enc._getSecretBox("__enc_v1")
 
 
@@ -506,7 +506,7 @@ def test_is_encrypted_bytes(enc):
     assert enc.is_encrypted(token) is True
 
     # raiseIfEncrypted=True must raise
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         enc.is_encrypted(token, raiseIfEncrypted=True)
 
     # suppressing the guard returns the identical bytes object

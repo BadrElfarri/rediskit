@@ -7,20 +7,20 @@ from rediskit.redis.client.connection import get_redis_connection
 
 def rpush(
     key: str,
-    *values: str | bytes | int | float,
+    *values: str | bytes | float,
     connection: Redis | None = None,
 ) -> int:
     conn = connection if connection is not None else get_redis_connection()
-    return conn.rpush(key, *values)  # type: ignore[return-value]
+    return conn.rpush(key, *values)
 
 
 def lpush(
     key: str,
-    *values: str | bytes | int | float,
+    *values: str | bytes | float,
     connection: Redis | None = None,
 ) -> int:
     conn = connection if connection is not None else get_redis_connection()
-    return conn.lpush(key, *values)  # type: ignore[return-value]
+    return conn.lpush(key, *values)
 
 
 def lpop(
@@ -47,7 +47,7 @@ def rpop(
 
 def llen(key: str, connection: Redis | None = None) -> int:
     conn = connection if connection is not None else get_redis_connection()
-    return conn.llen(key)  # type: ignore[return-value]
+    return conn.llen(key)
 
 
 def lrange(
@@ -57,7 +57,7 @@ def lrange(
     connection: Redis | None = None,
 ) -> list:
     conn = connection if connection is not None else get_redis_connection()
-    return conn.lrange(key, start, end)  # type: ignore[return-value]
+    return conn.lrange(key, start, end)
 
 
 _DRAIN_LUA = """

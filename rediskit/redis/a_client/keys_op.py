@@ -1,4 +1,4 @@
-from typing import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
 
 from redis import asyncio as redis_async
 

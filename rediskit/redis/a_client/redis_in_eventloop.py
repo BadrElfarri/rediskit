@@ -2,9 +2,7 @@ import asyncio
 import logging
 import threading
 import weakref
-from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Optional, cast
 
 import redis.asyncio as redis_async
 from redis.asyncio import BlockingConnectionPool
@@ -18,7 +16,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class _LoopSlot:
     lock: asyncio.Lock  # created on the loop
-    client: Optional[redis_async.Redis] = None
+    client: redis_async.Redis | None = None
 
 
 # One registry entry per *event loop*
@@ -118,7 +116,7 @@ async def get_async_redis_connection_in_eventloop(
                 max_connections=max_connections,
                 timeout=timeout,
             )
-            await cast(Awaitable[bool], client.ping())
+            await client.ping()
             slot.client = client
     return slot.client
 

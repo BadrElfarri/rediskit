@@ -34,8 +34,7 @@ def fixed_random(monkeypatch):
 
     def iterator():
         while True:
-            for v in seq["vals"]:
-                yield v
+            yield from seq["vals"]
 
     it = iterator()
 

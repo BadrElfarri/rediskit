@@ -80,14 +80,14 @@ def test_HGetCacheFromRedis_fields_variants(Connection):
 def test_HGetCacheFromRedis_invalid_field_type(Connection):
     node_key = "badtype"
     h_set_cache_to_redis(TEST_TENANT_ID, node_key, {"f": 1}, connection=Connection)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         h_get_cache_from_redis(TEST_TENANT_ID, node_key, 42, connection=Connection)
 
 
 def test_HDelCacheFromRedis_invalid_field_type(Connection):
     node_key = "delfail"
     h_set_cache_to_redis(TEST_TENANT_ID, node_key, {"f": 1}, connection=Connection)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         h_del_cache_from_redis(TEST_TENANT_ID, node_key, 1.23, connection=Connection)
 
 

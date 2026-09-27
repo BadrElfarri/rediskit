@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Optional, cast
+from typing import cast
 
 from redis import RedisError
 
@@ -37,7 +37,7 @@ class _Lease:
     holder_id: str
     slot_key: str
     stop_event: threading.Event
-    renew_thread: Optional[threading.Thread]
+    renew_thread: threading.Thread | None
 
 
 class Semaphore:
@@ -80,10 +80,10 @@ class Semaphore:
     def _slot_key(self, i: int) -> str:
         return f"{self.namespace}:slot:{i}"
 
-    def _get_lease(self) -> Optional[_Lease]:
+    def _get_lease(self) -> _Lease | None:
         return getattr(self._local, "lease", None)
 
-    def _set_lease(self, lease: Optional[_Lease]) -> None:
+    def _set_lease(self, lease: _Lease | None) -> None:
         self._local.lease = lease
 
     @property
@@ -160,7 +160,7 @@ class Semaphore:
                     log.warning("Semaphore lease lost for %s", lease.slot_key)
                     return
             except Exception as e:
-                log.warning("Semaphore TTL renewal failed: %s", e)
+                log.warning("Semaphore TTL renewal failed: %s", e, exc_info=True)
                 return
 
     def _start_ttl_renewal(self, lease: _Lease):

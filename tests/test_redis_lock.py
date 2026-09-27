@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import time
 import uuid
 
@@ -67,10 +68,8 @@ async def test_lock_pool_exhaustion_waits_then_succeeds():
             return acquired
         finally:
             if acquired:
-                try:
+                with contextlib.suppress(Exception):
                     await lock.release()
-                except Exception:
-                    pass
 
     t0 = time.perf_counter()
 

@@ -1,4 +1,5 @@
-from typing import Any, Awaitable, cast
+from collections.abc import Awaitable
+from typing import Any, cast
 
 from redis import asyncio as redis_async
 
@@ -7,20 +8,20 @@ from rediskit.redis.a_client.connection import get_async_redis_connection
 
 async def rpush(
     key: str,
-    *values: str | bytes | int | float,
+    *values: str | bytes | float,
     connection: redis_async.Redis | None = None,
 ) -> int:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await cast(Awaitable[int], conn.rpush(key, *values))
+    return await conn.rpush(key, *values)
 
 
 async def lpush(
     key: str,
-    *values: str | bytes | int | float,
+    *values: str | bytes | float,
     connection: redis_async.Redis | None = None,
 ) -> int:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await cast(Awaitable[int], conn.lpush(key, *values))
+    return await conn.lpush(key, *values)
 
 
 async def lpop(
@@ -47,7 +48,7 @@ async def rpop(
 
 async def llen(key: str, connection: redis_async.Redis | None = None) -> int:
     conn = connection if connection is not None else get_async_redis_connection()
-    return await cast(Awaitable[int], conn.llen(key))
+    return await conn.llen(key)
 
 
 async def lrange(

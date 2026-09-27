@@ -1,7 +1,9 @@
 import json
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 from redis import Redis
+from redis.typing import EncodableT, FieldT
 
 from rediskit.encrypter import Encrypter
 from rediskit.redis.client.connection import get_redis_connection
@@ -13,7 +15,7 @@ def hash_set_ttl_for_key(
 ) -> None:
     node_key = top_node(tenant_id, key)
     connection = connection if connection is not None else get_redis_connection()
-    connection.hexpire(node_key, ttl, *fields)  # type: ignore  # hexpire do exist in new redis version
+    connection.hexpire(node_key, ttl, *fields)
 
 
 def h_set_cache_to_redis(
@@ -28,7 +30,7 @@ def h_set_cache_to_redis(
     node_key = top_node(tenant_id, key)
     connection = connection if connection is not None else get_redis_connection()
     # Create a mapping with JSON-serialized values
-    mapping: dict[str | bytes, bytes | float | int | str]
+    mapping: dict[FieldT, EncodableT]
     if enable_encryption:
         encrypter = Encrypter()
         mapping = {field: encrypter.encrypt(json.dumps(value).encode("utf-8")) for field, value in fields.items()}
@@ -36,7 +38,7 @@ def h_set_cache_to_redis(
         mapping = {field: json.dumps(value) for field, value in fields.items()}
     connection.hset(node_key, mapping=mapping)
     if ttl is not None:
-        connection.hexpire(node_key, ttl, *mapping.keys())  # type: ignore  # hexpire do exist in new redis version
+        connection.hexpire(node_key, ttl, *mapping.keys())
 
 
 def h_get_cache_from_redis(
@@ -65,10 +67,10 @@ def h_get_cache_from_redis(
         values = cast(list, connection.hmget(node_key, fields))
         data = {fields[i]: (value if value is not None else None) for i, value in enumerate(values)}
     else:
-        raise ValueError("fields must be either None, a string, or a list of strings")
+        raise TypeError("fields must be either None, a string, or a list of strings")
 
     if set_ttl_on_read is not None and data:
-        connection.hexpire(node_key, set_ttl_on_read, *data.keys())  # type: ignore  # hexpire do exist in new redis version
+        connection.hexpire(node_key, set_ttl_on_read, *data.keys())
 
     if is_encrypted:
         encrypter = Encrypter()
@@ -111,6 +113,6 @@ def h_del_cache_from_redis(
     elif isinstance(fields, list):
         field_names = fields
     else:
-        raise ValueError("fields must be either a dictionary or a list of strings")
+        raise TypeError("fields must be either a dictionary or a list of strings")
     # Delete the specified fields from the hash
     connection.hdel(node_key, *field_names)

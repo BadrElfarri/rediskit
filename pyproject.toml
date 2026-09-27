@@ -38,7 +38,7 @@ dependencies = [
 dev = [
     "ruff",               # Fast Python linter and formatter
     "pytest",             # Testing framework
-    "mypy",               # Static type checker for Python
+    "ty",                 # Static type checker for Python (Astral)
     "pytest-asyncio",     # Pytest plugin for testing async code
     "types-zstd",         # Type stubs for the zstd package
     "polars"              # High-performance DataFrame library for analytics
@@ -56,6 +56,10 @@ Changelog = "https://github.com/badrelfarri/rediskit/blob/main/CHANGELOG.md"
 
 [tool.setuptools.package-data]
 rediskit = ["py.typed"]
+
+[tool.ty.src]
+# Type-check the package only. Tests pass deliberately wrong types to exercise validation.
+exclude = ["tests"]
 
 [tool.ruff]
 line-length = 160
@@ -86,7 +90,7 @@ exclude = [
 [tool.ruff.lint]
 ignore = ["E501"]
 
-[tool.mypy]
-exclude = "build/"
-ignore_missing_imports = true
-plugins = []
+[tool.ruff.lint.per-file-ignores]
+# Test workers (threads/tasks) deliberately catch every exception so the test
+# can collect them and assert on the list afterwards.
+"tests/**" = ["BLE001"]

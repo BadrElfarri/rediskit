@@ -1,8 +1,9 @@
 import asyncio
 import functools
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Awaitable, Callable, ParamSpec, TypeVar, cast
+from typing import Any, ParamSpec, TypeVar, cast
 
 import httpx
 

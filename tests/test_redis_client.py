@@ -112,7 +112,7 @@ def test_get_keys(connection):
     h_set_cache_to_redis(TEST_TENANT_ID, k2, {"a": 2}, connection=connection)
     keys = get_keys(TEST_TENANT_ID, "*", connection=connection, only_last_key=True)
     # At least the two we just created
-    assert set([k1, k2]).issubset(set(keys))
+    assert {k1, k2}.issubset(set(keys))
 
 
 def test_set_ttl_for_key(connection):
@@ -162,14 +162,14 @@ def test_list_keys_limit_over_10000_raises(connection):
 def test_h_get_invalid_field_type(connection):
     key = "badtype"
     h_set_cache_to_redis(TEST_TENANT_ID, key, {"f": 1}, connection=connection)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         h_get_cache_from_redis(TEST_TENANT_ID, key, 42, connection=connection)
 
 
 def test_h_del_invalid_field_type(connection):
     key = "delfail"
     h_set_cache_to_redis(TEST_TENANT_ID, key, {"f": 1}, connection=connection)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         h_del_cache_from_redis(TEST_TENANT_ID, key, 1.23, connection=connection)
 
 

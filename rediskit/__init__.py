@@ -15,26 +15,22 @@ from rediskit.retry_decorator import RetryPolicy, retry_async
 from rediskit.semaphore import Semaphore
 
 __all__ = [
-    # Redis client
-    "get_redis_top_node",
-    "a_client",
-    "client",
-    # Connection management
-    "init_redis_connection_pool",
-    "get_redis_connection",
-    "close",
-    "init_async_redis_connection_pool",
-    "get_async_redis_connection",
-    "async_connection_close",
-    # Redis
-    "redis_memoize",
-    "a_redis_memoize",
-    "get_redis_mutex_lock",
-    "get_async_redis_mutex_lock",
-    "Semaphore",
     "AsyncSemaphore",
-    "RetryPolicy",
-    "retry_async",
-    # Encryption,
     "Encrypter",
+    "RetryPolicy",
+    "Semaphore",
+    "a_client",
+    "a_redis_memoize",
+    "async_connection_close",
+    "client",
+    "close",
+    "get_async_redis_connection",
+    "get_async_redis_mutex_lock",
+    "get_redis_connection",
+    "get_redis_mutex_lock",
+    "get_redis_top_node",
+    "init_async_redis_connection_pool",
+    "init_redis_connection_pool",
+    "redis_memoize",
+    "retry_async",
 ]
