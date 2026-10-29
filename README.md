@@ -192,6 +192,25 @@ async with get_async_redis_mutex_lock("async_critical_section", expire=30) as lo
     await perform_async_critical_operation()
 ```
 
+### Rate Limiting
+
+```python
+from rediskit import AsyncRateLimiter
+
+# At most 25 sends per sliding minute on this mailbox, counted on the Redis server
+# clock so every process sees the same window.
+limiter = AsyncRateLimiter(key=f"{tenant_id}:mailbox_sends:{mailbox_id}", limit=25, window_ms=60_000)
+
+wait_ms = await limiter.try_acquire()  # 0 = slot taken, else ms until the oldest send ages out
+if wait_ms:
+    schedule_retry_in(wait_ms)
+
+await limiter.acquire(timeout=30)  # or sleep until a slot frees
+
+# Two limiters on one key share the window: bulk traffic capped at 15 leaves room for regular sends.
+bulk = AsyncRateLimiter(key=f"{tenant_id}:mailbox_sends:{mailbox_id}", limit=15)
+```
+
 ### Encryption Management
 
 ```python
@@ -265,6 +284,7 @@ Cache function results in Redis with configurable options. Use `redis_memoize` f
 - `get_redis_mutex_lock(lock_name, expire, auto_renewal, id)`: Get sync distributed lock
 - `get_async_redis_mutex_lock(lock_name, expire, sleep, blocking, blocking_timeout, ...)`: Get async distributed lock
 - `Semaphore` / `AsyncSemaphore`: Distributed semaphore limiting concurrent holders across processes
+- `AsyncRateLimiter(key, limit, window_ms, redis_conn, min_wait_ms)`: Sliding-window limit on acquisitions per key; `try_acquire()` returns 0 or the ms to wait, `acquire(timeout)` sleeps, `count()`
 
 ### Encryption
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `AsyncRateLimiter`: a sliding-window rate limiter on one Redis key, atomic
+  across processes (`ZSET` of acquisition times trimmed on the Redis server
+  clock). `try_acquire()` takes a slot and returns 0, or returns the
+  milliseconds until the oldest acquisition leaves the window without
+  blocking; `acquire(timeout)` sleeps until a slot is taken; `count()` reads
+  the window. Several limiters on one key with different limits share the
+  window, so a lower-capped lane leaves room for a higher-capped one. The key
+  expires with the window.
+
+### Changed
+
+- Passing an argument of the wrong type now raises `TypeError` instead of
+  `ValueError`. This covers `fields` in the hash helpers
+  (`h_get_cache_from_redis`, `h_del_cache_from_redis`, sync and async) and
+  `memoize_key` / `ttl` / `bypass_cache` in `redis_memoize` / `a_redis_memoize`.
+- Semaphore lease-renewal failures are now logged with their traceback.
+- Development: type checking moved from mypy to
+  [ty](https://github.com/astral-sh/ty) (`uv run ty check`, tests excluded in `pyproject.toml`).
+
+### Fixed
+
+- `get_async_redis_mutex_lock(lock_class=...)` is now annotated as
+  `type[redis.asyncio.lock.Lock]`, the class redis-py's async client actually
+  expects, instead of python-redis-lock's sync `Lock`.
+
 ## 0.0.43
 
 ### Added
