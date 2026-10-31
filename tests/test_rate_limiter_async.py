@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import time
 import uuid
 
@@ -113,6 +114,120 @@ async def test_sustained_load_is_held_to_the_limit_per_window():
 
     assert refused > taken
     assert 10 <= taken <= 20
+
+
+@pytest.mark.asyncio
+async def test_forty_emails_at_two_per_ten_seconds_each_get_their_own_turn():
+    plain, in_line, in_line_10 = limiter(limit=2, window_ms=10_000), limiter(limit=2, window_ms=10_000), limiter(limit=10, window_ms=10_000)
+
+    same_wait = [await plain.try_acquire() for _ in range(40)]
+    own_turn = [await in_line.take_turn() for _ in range(40)]
+    own_turn_10 = [await in_line_10.take_turn() for _ in range(40)]
+
+    print("\nemail  try_acquire  take_turn")
+    for email, (a, b) in enumerate(zip(same_wait, own_turn), start=1):
+        print(f"{email:>5}  {a / 1000:>10.1f}s  {b / 1000:>8.1f}s")
+
+    assert [round(w / 1000) for w in same_wait] == [0, 0] + [10] * 38
+    assert [round(w / 1000) for w in own_turn] == [0, 0] + [10 + 5 * i for i in range(38)]
+    assert [round(w / 1000) for w in own_turn_10] == [0] * 10 + [10 + 1 * i for i in range(30)]
+    assert await in_line.count() == 2
+
+
+@pytest.mark.asyncio
+async def test_booked_callers_send_at_their_turn_without_asking_again():
+    lim = limiter(limit=2, window_ms=600)
+    started = time.monotonic()
+
+    async def send() -> tuple[int, float]:
+        turn_ms = await lim.take_turn()
+        await asyncio.sleep(turn_ms / 1000)
+        return turn_ms, time.monotonic() - started
+
+    sends = sorted(await asyncio.gather(*(send() for _ in range(6))))
+
+    assert [round(turn_ms / 100) for turn_ms, _ in sends] == [0, 0, 6, 9, 12, 15]
+    assert all(turn_ms / 1000 - 0.01 <= sent_at <= turn_ms / 1000 + 0.05 for turn_ms, sent_at in sends)
+    assert await lim.count() == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_bookings_each_get_their_own_slot():
+    key = f"{PREFIX}:{uuid.uuid4()}"
+    limiters = [limiter(limit=10, window_ms=60_000, key=key) for _ in range(5)]
+
+    turns = await asyncio.gather(*(limiters[i % 5].take_turn() for i in range(200)))
+
+    waits = sorted(t for t in turns if t)
+    assert turns.count(0) == 10
+    assert 59_000 <= waits[0] <= 60_000
+    assert all(5_900 <= b - a <= 6_100 for a, b in itertools.pairwise(waits))
+    assert await get_async_redis_connection().zcard(limiters[0].key) == 200
+
+
+@pytest.mark.asyncio
+async def test_the_same_member_keeps_its_booking_and_gets_0_once_it_is_due():
+    lim = limiter(limit=1, window_ms=300)
+
+    assert await lim.take_turn() == 0
+    first = await lim.take_turn("email-1")
+    again = await lim.take_turn("email-1")
+    assert 200 <= again <= first <= 300
+
+    await asyncio.sleep(first / 1000 + 0.02)
+    assert await lim.take_turn("email-1") == 0
+    assert await lim.release("email-1") is False
+    assert 250 <= await lim.take_turn("email-1") <= 300
+    assert await lim.count() == 1
+
+
+@pytest.mark.asyncio
+async def test_a_released_booking_gives_its_slot_back():
+    lim = limiter(limit=2, window_ms=400)
+
+    assert [await lim.take_turn() for _ in range(2)] == [0, 0]
+    assert await lim.take_turn("unsent") > 0
+    assert await lim.release("unsent") is True
+    assert await lim.release("unsent") is False
+
+    await asyncio.sleep(0.45)
+    assert [await lim.try_acquire() == 0 for _ in range(3)] == [True, True, False]
+
+
+@pytest.mark.asyncio
+async def test_try_acquire_never_takes_a_slot_a_booking_needs():
+    key = f"{PREFIX}:{uuid.uuid4()}"
+    bulk, regular = limiter(limit=2, window_ms=400, key=key), limiter(limit=3, window_ms=400, key=key)
+
+    assert [round(await bulk.take_turn() / 100) for _ in range(4)] == [0, 0, 4, 6]
+    await asyncio.sleep(0.45)
+
+    assert await regular.try_acquire() == 0
+    assert await regular.try_acquire() > 0
+
+
+@pytest.mark.asyncio
+async def test_a_long_line_of_bookings_leaves_the_higher_cap_its_room():
+    key = f"{PREFIX}:{uuid.uuid4()}"
+    bulk, regular = limiter(limit=2, window_ms=60_000, key=key), limiter(limit=4, window_ms=60_000, key=key)
+
+    turns = [await bulk.take_turn() for _ in range(20)]
+
+    assert turns[:2] == [0, 0] and all(t > 0 for t in turns[2:])
+    assert [await regular.try_acquire() == 0 for _ in range(3)] == [True, True, False]
+
+
+@pytest.mark.asyncio
+async def test_bookings_expire_with_the_window_after_the_last_turn():
+    lim = limiter(limit=1, window_ms=200)
+    conn = get_async_redis_connection()
+
+    assert await lim.take_turn() == 0
+    assert [round(await lim.take_turn() / 100) for _ in range(2)] == [2, 4]
+
+    assert 400 < await conn.pttl(lim.key) <= 600
+    await asyncio.sleep(0.7)
+    assert await conn.exists(lim.key) == 0
 
 
 @pytest.mark.asyncio

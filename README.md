@@ -207,6 +207,12 @@ if wait_ms:
 
 await limiter.acquire(timeout=30)  # or sleep until a slot frees
 
+# A full window tells every try_acquire() caller the same wait. take_turn() books each caller its own slot,
+# one window_ms / limit apart, so waiters go out one at a time. A booked caller sends at its turn without
+# asking again; called again with the same member, it gets the time left, then 0 once the turn is due.
+wait_ms = await limiter.take_turn(member=email_id)  # 0 = send now, else ms until this caller's booked slot
+await limiter.release(email_id)  # give back the booking of a send that will not happen
+
 # Two limiters on one key share the window: bulk traffic capped at 15 leaves room for regular sends.
 bulk = AsyncRateLimiter(key=f"{tenant_id}:mailbox_sends:{mailbox_id}", limit=15)
 ```
@@ -284,7 +290,7 @@ Cache function results in Redis with configurable options. Use `redis_memoize` f
 - `get_redis_mutex_lock(lock_name, expire, auto_renewal, id)`: Get sync distributed lock
 - `get_async_redis_mutex_lock(lock_name, expire, sleep, blocking, blocking_timeout, ...)`: Get async distributed lock
 - `Semaphore` / `AsyncSemaphore`: Distributed semaphore limiting concurrent holders across processes
-- `AsyncRateLimiter(key, limit, window_ms, redis_conn, min_wait_ms)`: Sliding-window limit on acquisitions per key; `try_acquire()` returns 0 or the ms to wait, `acquire(timeout)` sleeps, `count()`
+- `AsyncRateLimiter(key, limit, window_ms, redis_conn, min_wait_ms)`: Sliding-window limit on acquisitions per key; `try_acquire()` returns 0 or the ms to wait, `take_turn(member)` returns 0 or the ms until the slot it booked for this caller, `release(member)` gives a booking back, `acquire(timeout)` sleeps, `count()`
 
 ### Encryption
 
