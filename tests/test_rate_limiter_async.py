@@ -116,6 +116,54 @@ async def test_sustained_load_is_held_to_the_limit_per_window():
 
 
 @pytest.mark.asyncio
+async def test_forty_emails_at_two_per_ten_seconds_each_get_their_own_turn():
+    plain, in_line = limiter(limit=2, window_ms=10_000), limiter(limit=2, window_ms=10_000)
+
+    same_wait = [await plain.try_acquire() for _ in range(40)]
+    own_turn = [await in_line.take_turn() for _ in range(40)]
+
+    print("\nemail  try_acquire  take_turn")
+    for email, (a, b) in enumerate(zip(same_wait, own_turn), start=1):
+        print(f"{email:>5}  {a / 1000:>10.1f}s  {b / 1000:>8.1f}s")
+
+    assert [round(w / 1000) for w in same_wait] == [0, 0] + [10] * 38
+    assert [round(w / 1000) for w in own_turn] == [0, 0] + [10 + 5 * i for i in range(38)]
+    assert await in_line.count() == 2
+
+
+@pytest.mark.asyncio
+async def test_callers_who_wait_for_their_turn_go_out_in_line_at_the_limit():
+    lim = limiter(limit=2, window_ms=600, min_wait_ms=50)
+    started = time.monotonic()
+
+    async def send() -> tuple[int, float]:
+        turn_ms = wait_ms = await lim.take_turn()
+        while wait_ms:
+            await asyncio.sleep(wait_ms / 1000)
+            wait_ms = await lim.try_acquire()
+        return turn_ms, time.monotonic() - started
+
+    sends = sorted(await asyncio.gather(*(send() for _ in range(6))))
+
+    assert [round(turn_ms / 100) for turn_ms, _ in sends] == [0, 0, 6, 9, 12, 15]
+    assert all(turn_ms / 1000 - 0.01 <= sent_at <= turn_ms / 1000 + 0.15 for turn_ms, sent_at in sends)
+
+
+@pytest.mark.asyncio
+async def test_the_line_clears_itself_after_the_last_turn():
+    lim = limiter(limit=1, window_ms=200)
+    conn = get_async_redis_connection()
+
+    assert await lim.take_turn() == 0
+    assert await conn.exists(lim.line_key) == 0
+    assert [round(await lim.take_turn() / 100) for _ in range(2)] == [2, 4]
+
+    assert 0 < await conn.pttl(lim.line_key) <= 600
+    await asyncio.sleep(0.7)
+    assert await conn.exists(lim.line_key) == 0
+
+
+@pytest.mark.asyncio
 async def test_acquire_waits_until_a_slot_frees():
     lim = limiter(limit=1, window_ms=400)
     await lim.acquire()

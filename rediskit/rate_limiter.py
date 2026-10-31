@@ -20,7 +20,14 @@ if redis.call('ZCARD', KEYS[1]) < tonumber(ARGV[2]) then
   return 0
 end
 local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-return math.max(tonumber(oldest[2]) + window - now, tonumber(ARGV[3]))
+local wait = math.max(tonumber(oldest[2]) + window - now, tonumber(ARGV[3]))
+if #KEYS == 1 then
+  return wait
+end
+local step = tonumber(ARGV[5])
+local turn = math.max(now + wait, tonumber(redis.call('GET', KEYS[2]) or 0) + step)
+redis.call('SET', KEYS[2], turn, 'PX', turn - now + step)
+return turn - now
 """
 
 _COUNT_LUA = """
@@ -38,6 +45,10 @@ class AsyncRateLimiter:
     process sees the same count and a slot frees the moment the oldest acquisition ages out.
     Two limiters on the same key with different limits share one window: the lower limit leaves
     room for the higher one. The key expires on its own once the window is empty.
+
+    When the window is full, `try_acquire()` tells every caller the same wait. `take_turn()` instead
+    gives each caller its own turn, one `window_ms / limit` after the turn handed out before it, so
+    waiters come back one at a time and in order. A caller back at its turn calls `try_acquire()`.
     """
 
     def __init__(self, key: str, limit: int, window_ms: int = 60_000, redis_conn: redis_async.Redis | None = None, min_wait_ms: int = 200):
@@ -57,13 +68,26 @@ class AsyncRateLimiter:
     def redis_conn(self) -> redis_async.Redis:
         return self._redis_conn if self._redis_conn is not None else get_async_redis_connection()
 
+    @property
+    def line_key(self) -> str:
+        return f"{self.key}:line"
+
     async def try_acquire(self) -> int:
         """Take a slot and return 0, or return the milliseconds until the oldest acquisition leaves the window."""
+        return await self._try_acquire(self.key)
+
+    async def take_turn(self) -> int:
+        """Take a slot and return 0, or take the next place in line and return the milliseconds until that turn."""
+        return await self._try_acquire(self.key, self.line_key)
+
+    async def _try_acquire(self, *keys: str) -> int:
         try:
             return int(
                 await cast(
                     Awaitable[int],
-                    self.redis_conn.eval(_TRY_ACQUIRE_LUA, 1, self.key, self.window_ms, self.limit, self.min_wait_ms, str(uuid.uuid4())),
+                    self.redis_conn.eval(
+                        _TRY_ACQUIRE_LUA, len(keys), *keys, self.window_ms, self.limit, self.min_wait_ms, str(uuid.uuid4()), self.window_ms // self.limit
+                    ),
                 )
             )
         except RedisError as e:

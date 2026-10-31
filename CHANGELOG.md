@@ -12,6 +12,10 @@
   the window. Several limiters on one key with different limits share the
   window, so a lower-capped lane leaves room for a higher-capped one. The key
   expires with the window.
+- `AsyncRateLimiter.take_turn()`: like `try_acquire()`, but a caller that finds
+  the window full gets its own turn in line, one `window_ms / limit` after the
+  turn handed out before it, instead of the same wait as every other caller.
+  The line lives on `<key>:line` and expires after its last turn.
 
 ### Changed
 
