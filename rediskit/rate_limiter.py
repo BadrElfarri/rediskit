@@ -14,27 +14,84 @@ local t = redis.call('TIME')
 local now = t[1] * 1000 + math.floor(t[2] / 1000)
 local window = tonumber(ARGV[1])
 redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, now - window)
-if redis.call('ZCARD', KEYS[1]) < tonumber(ARGV[2]) then
+local fullest = redis.call('ZCARD', KEYS[1])
+local newest = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
+if newest[2] and tonumber(newest[2]) > now then
+  local raw = redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. (now - window), '(' .. (now + window), 'WITHSCORES')
+  local s = {}
+  for i = 2, #raw, 2 do
+    s[#s + 1] = tonumber(raw[i])
+  end
+  fullest = 0
+  local lo, hi = 1, 0
+  for i = 0, #s do
+    local edge = now
+    if i > 0 then
+      edge = s[i]
+    end
+    if edge >= now then
+      while hi < #s and s[hi + 1] <= edge do
+        hi = hi + 1
+      end
+      while lo <= hi and s[lo] <= edge - window do
+        lo = lo + 1
+      end
+      fullest = math.max(fullest, hi - lo + 1)
+    end
+  end
+end
+if fullest < tonumber(ARGV[2]) then
   redis.call('ZADD', KEYS[1], now, ARGV[4])
-  redis.call('PEXPIRE', KEYS[1], window)
+  if redis.call('PTTL', KEYS[1]) < window then
+    redis.call('PEXPIRE', KEYS[1], window)
+  end
   return 0
 end
 local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-local wait = math.max(tonumber(oldest[2]) + window - now, tonumber(ARGV[3]))
-if #KEYS == 1 then
-  return wait
+return math.max(tonumber(oldest[2]) + window - now, tonumber(ARGV[3]))
+"""
+
+_TAKE_TURN_LUA = """
+local t = redis.call('TIME')
+local now = t[1] * 1000 + math.floor(t[2] / 1000)
+local window = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, now - window)
+local booked = redis.call('ZSCORE', KEYS[1], ARGV[4])
+if booked then
+  booked = tonumber(booked)
+  if booked > now then
+    return booked - now
+  end
+  redis.call('ZREM', KEYS[1], ARGV[4])
+  redis.call('ZADD', KEYS[1], booked, ARGV[5])
+  return 0
 end
-local step = tonumber(ARGV[5])
-local turn = math.max(now + wait, tonumber(redis.call('GET', KEYS[2]) or 0) + step)
-redis.call('SET', KEYS[2], turn, 'PX', turn - now + step)
-return turn - now
+local at = now
+local newest = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
+if newest[2] and tonumber(newest[2]) > now then
+  at = tonumber(newest[2]) + tonumber(ARGV[3])
+end
+local nth = redis.call('ZRANGE', KEYS[1], -limit, -limit, 'WITHSCORES')
+if nth[2] then
+  at = math.max(at, tonumber(nth[2]) + window)
+end
+if at == now then
+  redis.call('ZADD', KEYS[1], now, ARGV[5])
+else
+  redis.call('ZADD', KEYS[1], at, ARGV[4])
+end
+if redis.call('PTTL', KEYS[1]) < at - now + window then
+  redis.call('PEXPIRE', KEYS[1], at - now + window)
+end
+return at - now
 """
 
 _COUNT_LUA = """
 local t = redis.call('TIME')
 local now = t[1] * 1000 + math.floor(t[2] / 1000)
 redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, now - tonumber(ARGV[1]))
-return redis.call('ZCARD', KEYS[1])
+return redis.call('ZCOUNT', KEYS[1], '-inf', now)
 """
 
 
@@ -47,8 +104,9 @@ class AsyncRateLimiter:
     room for the higher one. The key expires on its own once the window is empty.
 
     When the window is full, `try_acquire()` tells every caller the same wait. `take_turn()` instead
-    gives each caller its own turn, one `window_ms / limit` after the turn handed out before it, so
-    waiters come back one at a time and in order. A caller back at its turn calls `try_acquire()`.
+    books the caller a slot in the window: the moment the slot it needs frees, and at least
+    `window_ms / limit` after the booking before it. A booked caller sends at its turn without asking
+    again, and `try_acquire()` never hands out a slot that a booking needs.
     """
 
     def __init__(self, key: str, limit: int, window_ms: int = 60_000, redis_conn: redis_async.Redis | None = None, min_wait_ms: int = 200):
@@ -68,28 +126,28 @@ class AsyncRateLimiter:
     def redis_conn(self) -> redis_async.Redis:
         return self._redis_conn if self._redis_conn is not None else get_async_redis_connection()
 
-    @property
-    def line_key(self) -> str:
-        return f"{self.key}:line"
-
     async def try_acquire(self) -> int:
         """Take a slot and return 0, or return the milliseconds until the oldest acquisition leaves the window."""
-        return await self._try_acquire(self.key)
+        return await self._eval(_TRY_ACQUIRE_LUA, self.window_ms, self.limit, self.min_wait_ms, str(uuid.uuid4()))
 
-    async def take_turn(self) -> int:
-        """Take a slot and return 0, or take the next place in line and return the milliseconds until that turn."""
-        return await self._try_acquire(self.key, self.line_key)
+    async def take_turn(self, member: str | None = None) -> int:
+        """Take a slot and return 0, or book the next slot in line and return the milliseconds until it.
 
-    async def _try_acquire(self, *keys: str) -> int:
+        With a `member`, calling again returns the time left on its booking, then 0 once the turn is due.
+        """
+        booking = member or str(uuid.uuid4())
+        return await self._eval(_TAKE_TURN_LUA, self.window_ms, self.limit, self.window_ms // self.limit, booking, str(uuid.uuid4()))
+
+    async def release(self, member: str) -> bool:
+        """Give back the booking of a `member` that will not send; False if it has none."""
         try:
-            return int(
-                await cast(
-                    Awaitable[int],
-                    self.redis_conn.eval(
-                        _TRY_ACQUIRE_LUA, len(keys), *keys, self.window_ms, self.limit, self.min_wait_ms, str(uuid.uuid4()), self.window_ms // self.limit
-                    ),
-                )
-            )
+            return bool(await self.redis_conn.zrem(self.key, member))
+        except RedisError as e:
+            raise RuntimeError(f"Failed to release rate limit booking on {self.key}: {e}") from e
+
+    async def _eval(self, script: str, *args: str | int) -> int:
+        try:
+            return int(await cast(Awaitable[int], self.redis_conn.eval(script, 1, self.key, *args)))
         except RedisError as e:
             raise RuntimeError(f"Failed to acquire rate limit slot on {self.key}: {e}") from e
 
@@ -106,7 +164,7 @@ class AsyncRateLimiter:
             await asyncio.sleep(wait_ms / 1000)
 
     async def count(self) -> int:
-        """Acquisitions currently inside the window."""
+        """Acquisitions currently inside the window, not counting bookings still to come."""
         try:
             return int(await cast(Awaitable[int], self.redis_conn.eval(_COUNT_LUA, 1, self.key, self.window_ms)))
         except RedisError as e:

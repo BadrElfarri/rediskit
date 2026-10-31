@@ -12,10 +12,17 @@
   the window. Several limiters on one key with different limits share the
   window, so a lower-capped lane leaves room for a higher-capped one. The key
   expires with the window.
-- `AsyncRateLimiter.take_turn()`: like `try_acquire()`, but a caller that finds
-  the window full gets its own turn in line, one `window_ms / limit` after the
-  turn handed out before it, instead of the same wait as every other caller.
-  The line lives on `<key>:line` and expires after its last turn.
+- `AsyncRateLimiter.take_turn(member=None)`: like `try_acquire()`, but a caller
+  that finds the window full books its own slot in the window instead of
+  getting the same wait as every other caller. The booking falls when the slot
+  it needs frees, and at least `window_ms / limit` after the booking before it,
+  so waiters go out one at a time. A booked caller sends at its turn without
+  asking again; called again with the same `member`, it gets the time left on
+  its booking, then 0 once the turn is due. Bookings count as taken, so
+  `try_acquire()` never hands out a slot a booking needs, and `count()` leaves
+  them out until they are due.
+- `AsyncRateLimiter.release(member)`: gives back the booking of a send that
+  will not happen.
 
 ### Changed
 
